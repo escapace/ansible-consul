@@ -1,0 +1,11 @@
+---
+
+consul_version: 1.10.3
+
+consul_ca_file_path:
+consul_cert_file_path:
+consul_key_fie_path:
+
+consul_remote_ca_file_path: /tmp/consul-ca.pem
+consul_remote_cert_file_path: /tmp/consul-cert.pem
+consul_remote_key_file_path: /tmp/consul-key.pem
