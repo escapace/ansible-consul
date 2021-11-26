@@ -1,2 +1,7 @@
 ---
-# vars file for escapace.consul
+
+consul_health_check_architecture:
+  amd64: amd64
+  aarch64: arm64
+
+consul_health_check_url: https://github.com/kadaan/consulate/releases/download/v{{ consul_health_check_version }}/consulate_linux_{{ consul_health_check_architecture[ansible_architecture] }}.tar.gz

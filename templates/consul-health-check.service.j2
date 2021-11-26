@@ -1,0 +1,19 @@
+[Unit]
+Description="Consul health check monitoring endpoint"
+Documentation=https://www.consul.io/
+Requires=network-online.target
+After=network-online.target
+After=consul.service
+ConditionFileNotEmpty=/opt/consul/config/default.json
+
+[Service]
+User=consul
+Group=consul
+ExecStart=/opt/consul/bin/consul-health-check server -l :{{ consul_health_check_port }}
+KillMode=process
+Restart=on-failure
+TimeoutSec=300s
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
