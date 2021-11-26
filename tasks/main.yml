@@ -1,12 +1,12 @@
 ---
 
-- name: check consul variables
-  assert:
-    that:
-      - consul_ca_file_path is string and consul_ca_file_path | length > 0
-      - consul_cert_file_path is string and consul_cert_file_path | length > 0
-      - consul_key_file_path is string and consul_key_file_path | length > 0
-    quiet: true
+# - name: check consul variables
+#   assert:
+#     that:
+#       - consul_ca_file_path is string and consul_ca_file_path | length > 0
+#       - consul_cert_file_path is string and consul_cert_file_path | length > 0
+#       - consul_key_file_path is string and consul_key_file_path | length > 0
+#     quiet: true
 
 - include_tasks: consul.yml
   when: ansible_os_family == "RedHat"

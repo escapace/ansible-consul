@@ -3,6 +3,8 @@
 
 set -e
 
+umask 027
+
 readonly AWS_ASG_TAG_KEY="aws:autoscaling:groupName"
 
 readonly CONSUL_CONFIG_FILE="default.json"
@@ -211,6 +213,8 @@ function split_by_lines {
 }
 
 function generate_consul_config {
+  umask 027
+
   local -r server="${1}"
   local -r config_dir="${2}"
   local -r user="${3}"
@@ -251,7 +255,7 @@ function generate_consul_config {
     log_warn "Either the cluster tag key ($cluster_tag_key) or value ($cluster_tag_value) is empty. Will not automatically try to form a cluster based on EC2 tags."
   else
     retry_join_json=$(cat <<EOF
-"retry_join": ["provider=aws region=$instance_region tag_key=$cluster_tag_key tag_value=$cluster_tag_value"],
+"retry_join": ["provider=aws addr_type=public_v6 region=$instance_region tag_key=$cluster_tag_key tag_value=$cluster_tag_value"],
 EOF
 )
   fi
@@ -316,12 +320,15 @@ EOF
   local default_config_json
   default_config_json=$(cat <<EOF
 {
-  "advertise_addr": "$instance_ip_address",
-  "bind_addr": "$instance_ip_address",
+  "advertise_addr": "{{ GetPublicInterfaces | include \"name\" \"eth0\" | include \"type\" \"IPv6\" | include \"flags\" \"forwardable|up\" | attr \"address\" }}",
+  "bind_addr": "{{ GetPublicInterfaces | include \"name\" \"eth0\" | include \"type\" \"IPv6\" | include \"flags\" \"forwardable|up\" | attr \"address\" }}",
   $bootstrap_expect
-  "client_addr": "0.0.0.0",
+  "client_addr": "127.0.0.1 ::1",
+  "addresses": {
+    "dns": "127.0.0.1 ::1",
+    "http": "127.0.0.1 ::1 {{ GetAllInterfaces | include \"name\" \"eth0\" | include \"flags\" \"up\" | exclude \"flags\" \"link-local unicast|link-local multicast|interface-local multicast\"  | join \"address\" \" \" }}"
+  },
   "datacenter": "$datacenter",
-  "node_name": "$instance_id",
   $recursors_config
   $retry_join_json
   "server": $server,
@@ -343,6 +350,8 @@ EOF
 }
 
 function generate_systemd_config {
+  umask 022
+
   local -r systemd_config_path="$1"
   local -r consul_config_dir="$2"
   local -r consul_data_dir="$3"
@@ -369,7 +378,6 @@ EOF
 
   local -r service_config=$(cat <<EOF
 [Service]
-Type=notify
 User=$consul_user
 Group=$consul_user
 ExecStart=$consul_bin_dir/consul agent -config-dir $consul_config_dir -data-dir $consul_data_dir
