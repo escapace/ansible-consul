@@ -371,6 +371,7 @@ Description="HashiCorp Consul - A service mesh solution"
 Documentation=https://www.consul.io/
 Requires=network-online.target
 After=network-online.target
+After=ferm.service
 ConditionFileNotEmpty=$config_path
 
 EOF
