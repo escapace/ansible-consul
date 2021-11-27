@@ -81,8 +81,6 @@
 
 - name: create the consul ferm conf files
   template: src=templates/1010-consul.conf.j2 dest=/etc/ferm/ferm.d/1010-consul.conf owner=root group=root mode=0600
-  notify:
-    - ferm restart
 
 - name: consul kresd.conf.d files
   template:
@@ -93,8 +91,6 @@
     mode: 0640
   loop:
     - "810-policy-consul.conf.j2"
-  notify:
-    - kresd restart
 
 - name: create consul service
   template: src=templates/consul.service.j2 dest=/etc/systemd/system/consul.service owner=root group=root mode=0644
