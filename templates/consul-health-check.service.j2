@@ -2,9 +2,9 @@
 Description="Consul health check monitoring endpoint"
 Documentation=https://www.consul.io/
 Requires=network-online.target
+Requires=cosul.service
 After=network-online.target
 After=consul.service
-ConditionFileNotEmpty=/opt/consul/config/default.json
 
 [Service]
 User=consul

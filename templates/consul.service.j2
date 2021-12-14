@@ -2,7 +2,10 @@
 Description="HashiCorp Consul - A service mesh solution"
 Documentation=https://www.consul.io/
 Requires=network-online.target
+Requires=ferm.service
 After=network-online.target
+After=ferm.service
+
 ConditionFileNotEmpty=/opt/consul/config/default.json
 [Service]
 User=consul

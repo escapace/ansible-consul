@@ -21,3 +21,4 @@ dependencies:
   - { role: escapace.ferm }
   - { role: escapace.aws_cli }
   - { role: escapace.kresd }
+  - { role: escapace.storage_setup }

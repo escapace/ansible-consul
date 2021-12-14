@@ -1,0 +1,13 @@
+[volume:consul]
+group = {{ storage_setup_volume_group_name }}
+volume = {{ consul_volume_name }}
+size = {{ consul_volume_size }}
+
+[filesystem:consul]
+dev = {{ consul_volume_device }}
+fstype = {{ consul_volume_fs_type }}
+mount = {{ consul_volume_mount }}
+required_by = storage-setup.service consul.service
+user = consul
+group = consul
+mode = 700
