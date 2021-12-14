@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+
+set -e
+set -u
+set -o pipefail
+
+umask 027
+
+readonly SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly CONSUL_CONFIG_DIR="$(cd "$SCRIPT_DIR/../config" && pwd)"
+readonly CONSUL_HTTP_ADDR="http://127.0.0.1:8500"
+readonly CONSUL_MASTER_TOKEN="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.master')"
+readonly CONSUL_AGENT_TOKEN="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.agent')"
+readonly CONSUL_POLICY_DIR="$(cd "$SCRIPT_DIR/../policy" && pwd)"
+readonly CONSUL_BIN_DIR="$(cd "$SCRIPT_DIR/../bin" && pwd)"
+
+function log {
+  local -r level="$1"
+  local -r message="$2"
+  local -r timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+  >&2 echo -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
+}
+
+function log_info {
+  local -r message="$1"
+  log "INFO" "$message"
+}
+
+function log_error {
+  local -r message="$1"
+  log "ERROR" "$message"
+}
+
+if [[ -z "${CONSUL_SECRETS_BUCKET_NAME}" ]]
+then
+  log_error "CONSUL_SECRETS_BUCKET_NAME not set"
+
+  exit 1
+fi
+
+function get_token() {
+  local -r name="$1"
+  local source="server/consul/acl-token-${name}.txt"
+
+  log_info "Downloading ${source}"
+
+  aws s3 cp --quiet \
+    "s3://${CONSUL_SECRETS_BUCKET_NAME}/${source}" /dev/stdout || exit 1
+}
+
+function get_policy() {
+  local -r name="$1"
+
+  log_info "Downloading server/consul/acl-policy-${name}.hcl"
+
+  aws s3api get-object --bucket "${CONSUL_SECRETS_BUCKET_NAME}" --key "server/consul/acl-policy-${name}.hcl" "${CONSUL_POLICY_DIR}/${name}.hcl" &> /dev/null || exit 1
+}
+
+function consul_agent_self_leader() {
+  local consul_http_addr="${CONSUL_HTTP_ADDR}"
+  local consul_http_token="${CONSUL_MASTER_TOKEN}"
+
+  curl -s -k \
+    --header "Authorization: Bearer ${consul_http_token}" \
+    "${consul_http_addr}/v1/agent/self" | jq -r '.Stats.consul.leader' 2>/dev/null
+}
+
+function consul_is_leader() {
+  until [[ "$(consul_agent_self_leader)" == "true" ]] || [[ "$(consul_agent_self_leader)" == "false" ]]; do
+    echo "Waiting for Consul to get a leader..."
+    sleep 2
+  done
+
+  [[ "$(consul_agent_self_leader)" == "true" ]]
+}
+
+function consul_policy_create() {
+  local -r name="$1"
+  local -r description="$2"
+  local -r policy="${CONSUL_POLICY_DIR}/${name}.hcl"
+  local consul_http_token="${CONSUL_MASTER_TOKEN}"
+
+  if CONSUL_HTTP_TOKEN="${consul_http_token}" "${CONSUL_BIN_DIR}/consul" acl policy read -name "${name}" &> /dev/null
+  then
+    true
+  else
+    get_policy "${name}"
+
+    CONSUL_HTTP_TOKEN="${consul_http_token}" "${CONSUL_BIN_DIR}/consul" acl policy create \
+      -name "${name}" \
+      -description "${description}" \
+      -rules "@${CONSUL_POLICY_DIR}/${name}.hcl" &> /dev/null
+  fi
+}
+
+function consul_token_update() {
+  local -r description="$1"
+  local -r secret="$2"
+  shift 2
+  local -r policies=("$@")
+
+  local policies_config=()
+  for policy in "${policies[@]}"
+  do
+    policies_config+=("-policy-name")
+    policies_config+=("${policy}")
+  done
+
+  local accessor_id
+  local consul_http_token="${CONSUL_MASTER_TOKEN}"
+
+  accessor_id="$(CONSUL_HTTP_TOKEN="${consul_http_token}" consul acl token list -format json | jq -r ".[] | select(.SecretID == \"${secret}\") | .AccessorID")"
+
+  if [[ -z "${accessor_id}" ]]
+  then
+    CONSUL_HTTP_TOKEN="${consul_http_token}" "${CONSUL_BIN_DIR}/consul" acl token create \
+      -description "${description}" \
+      -secret "${secret}" \
+      "${policies_config[@]}" &> /dev/null
+  fi
+}
+
+consul_token_anonymous_update() {
+  local consul_http_token="${CONSUL_MASTER_TOKEN}"
+
+  local -r policies=("$@")
+
+  local policies_config=()
+  for policy in "${policies[@]}"
+  do
+    policies_config+=("-policy-name")
+    policies_config+=("${policy}")
+  done
+
+  CONSUL_HTTP_TOKEN="${consul_http_token}" "${CONSUL_BIN_DIR}/consul" acl token update \
+    -id "00000000-0000-0000-0000-000000000002" \
+    -description "Anonymous Token" \
+    --merge-policies \
+    "${policies_config[@]}" &> /dev/null
+}
+
+function main() {
+  local nomad_client_token
+  local nomad_server_token
+
+  if consul_is_leader
+  then
+    nomad_client_token="$(get_token "nomad-client")"
+    nomad_server_token="$(get_token "nomad-server")"
+
+    consul_policy_create "agent" "Agent Token Policy"
+    consul_policy_create "dns" "DNS Policy"
+    consul_policy_create "list-nodes" "List Nodes"
+    consul_policy_create "nomad-client" "Nomad Client Policy"
+    consul_policy_create "nomad-server" "Nomad Server Policy"
+
+    sleep 3
+
+    consul_token_anonymous_update "dns" "list-nodes"
+    consul_token_update "Agent Token" "${CONSUL_AGENT_TOKEN}" "agent"
+    consul_token_update "Nomad Client Token" "${nomad_client_token}" "nomad-client"
+    consul_token_update "Nomad Server Token" "${nomad_server_token}" "nomad-server"
+  fi
+}
+
+main

@@ -25,23 +25,11 @@
   ansible.builtin.copy:
     src: install-consul
     dest: /tmp/install-consul
-    mode: "0644"
+    mode: "0750"
   changed_when: false
-
-# - name: copy certificates
-#   ansible.builtin.copy:
-#     src:  "{{ item.src }}"
-#     dest: "{{ item.dest }}"
-#     mode: "0644"
-#   loop:
-#     - { src: "{{ consul_ca_file_path }}", dest: "{{ consul_remote_ca_file_path }}" }
-#     - { src: "{{ consul_cert_file_path }}", dest: "{{ consul_remote_cert_file_path }}" }
-#     - { src: "{{ consul_key_file_path }}", dest: "{{ consul_remote_key_file_path }}" }
-#   changed_when: false
 
 - name: run install-consul script
   ansible.builtin.shell: bash /tmp/install-consul --version {{ consul_version }}
-  # ansible.builtin.shell: bash /tmp/install-consul --version {{ consul_version }} --ca-file-path {{ consul_remote_ca_file_path }} --cert-file-path {{ consul_remote_cert_file_path }} --key-file-path {{ consul_remote_key_file_path }}
   args:
     chdir: /
     creates: /opt/consul/bin/consul
@@ -52,21 +40,11 @@
     state: absent
   changed_when: false
 
-# - name: delete certificates
-#   ansible.builtin.file:
-#     path: "{{ item }}"
-#     state: absent
-#   with_items:
-#     - "{{ consul_remote_ca_file_path }}"
-#     - "{{ consul_remote_cert_file_path }}"
-#     - "{{ consul_remote_key_file_path }}"
-#   changed_when: false
-
 - name: copy run-consul script
   ansible.builtin.copy:
     src: run-consul
     dest: /opt/consul/bin/run-consul
-    mode: '0755'
+    mode: '0750'
     owner: consul
     group: consul
 
@@ -92,13 +70,22 @@
   loop:
     - "810-policy-consul.conf.j2"
 
+- name: create directory for systemd drop-ins
+  file:
+    path: /etc/systemd/system/consul.service.d
+    state: directory
+    mode: 0755
+
 - name: create consul service
   template: src=templates/consul.service.j2 dest=/etc/systemd/system/consul.service owner=root group=root mode=0644
   notify:
     - consul daemon-reload
 
-- name: enable consul on boot
-  service: name=consul enabled=yes
+- include_tasks: consul-server.yml
+  when: consul_server | bool is true
 
 - include_tasks: health-check.yml
   when: consul_health_check | bool is true
+
+- include_tasks: storage-setup.yml
+  when: (storage_setup_physical_device is defined) and (storage_setup_physical_device | length > 0) and (consul_volume|bool)

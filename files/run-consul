@@ -2,13 +2,16 @@
 # This script is used to configure and run Consul on an AWS server.
 
 set -e
+set -u
+set -o pipefail
 
 umask 027
 
 readonly AWS_ASG_TAG_KEY="aws:autoscaling:groupName"
 
 readonly CONSUL_CONFIG_FILE="default.json"
-readonly SYSTEMD_CONFIG_PATH="/etc/systemd/system/consul.service"
+readonly CONSUL_SYSTEMD_CONFIG_PATH="/etc/systemd/system/consul.service"
+readonly CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH="/etc/systemd/system/consul-bootstrap.service.d/010-secrets-bucket.conf"
 
 readonly EC2_INSTANCE_METADATA_URL="http://169.254.169.254/latest/meta-data"
 readonly EC2_INSTANCE_DYNAMIC_DATA_URL="http://169.254.169.254/latest/dynamic"
@@ -46,15 +49,12 @@ function print_usage {
   echo -e "  --bin-dir\t\tThe path to the folder with Consul binary. Optional. Default is the absolute path of the parent folder of this script."
   echo -e "  --user\t\tThe user to run Consul as. Optional. Default is to use the owner of --config-dir."
   echo -e "  --enable-gossip-encryption\t\tEnable encryption of gossip traffic between nodes. Optional. Must also specify --gossip-encryption-key."
-  echo -e "  --gossip-encryption-key\t\tThe key to use for encrypting gossip traffic. Optional. Must be specified with --enable-gossip-encryption."
+  echo -e "  --secrets-bucket-name\t\tAWS S3 secrets bucket name."
   echo -e "  --enable-rpc-encryption\t\tEnable encryption of RPC traffic between nodes. Optional. Must also specify --ca-file-path, --cert-file-path and --key-file-path."
-  echo -e "  --ca-path\t\tPath to the directory of CA files used to verify outgoing connections. Optional. Must be specified with --enable-rpc-encryption."
-  echo -e "  --cert-file-path\tPath to the certificate file used to verify incoming connections. Optional. Must be specified with --enable-rpc-encryption and --key-file-path."
-  echo -e "  --key-file-path\tPath to the certificate key used to verify incoming connections. Optional. Must be specified with --enable-rpc-encryption and --cert-file-path."
   echo -e "  --verify-server-hostname\tWhen passed in, enable server hostname verification as part of RPC encryption. Each server in Consul should get their own certificate that contains SERVERNAME.DATACENTERNAME.consul in the hostname or SAN. This prevents an authenticated agent from being converted into a server that streams all data, bypassing ACLs."
   echo -e "  --environment\t\tA single environment variable in the key/value pair form 'KEY=\"val\"' to pass to Consul as environment variable when starting it up. Repeat this option for additional variables. Optional."
   echo -e "  --skip-consul-config\tIf this flag is set, don't generate a Consul configuration file. Optional. Default is false."
-  echo -e "  --recursor\tThis flag provides address of upstream DNS server that is used to recursively resolve queries if they are not inside the service domain for Consul. Repeat this option for additional variables. Optional."
+  echo -e "  --ui\tEnables the service of the web UI from this agent. Optional."
   echo
   echo "Options for Consul Autopilot:"
   echo
@@ -126,6 +126,10 @@ function get_instance_ip_address {
   lookup_path_in_instance_metadata "local-ipv4"
 }
 
+function get_instance_hostname {
+  lookup_path_in_instance_metadata "hostname" | cut -d. -f1
+}
+
 function get_instance_id {
   lookup_path_in_instance_metadata "instance-id"
 }
@@ -145,7 +149,7 @@ function get_instance_tags {
     tags=$(aws ec2 describe-tags \
       --region "$instance_region" \
       --filters "Name=resource-type,Values=instance" "Name=resource-id,Values=${instance_id}")
-    count_tags=$(echo $tags | jq -r ".Tags? | length")
+    count_tags=$(echo "$tags" | jq -r ".Tags? | length")
     if [[ "$count_tags" -gt 0 ]]; then
       log_info "This Instance $instance_id in $instance_region has Tags."
       echo "$tags"
@@ -194,10 +198,36 @@ function get_tag_value {
   echo "$tags" | jq -r ".Tags[] | select(.Key == \"$tag_key\") | .Value"
 }
 
+function get_object {
+  local -r secrets_bucket_name="$1"
+  local -r source="$2"
+  local -r target="$3"
+  local -r user="$4"
+
+  log_info "Downloading ${source}"
+
+  aws s3api get-object \
+    --bucket "${secrets_bucket_name}" \
+    --key "${source}" \
+    "${target}" > /dev/null || exit 1
+
+  chown "${user}:${user}" "${target}"
+}
+
+function get_object_value {
+  local -r secrets_bucket_name="$1"
+  local -r source="$2"
+
+  log_info "Downloading ${source}"
+
+  aws s3 cp --quiet \
+    "s3://${secrets_bucket_name}/${source}" /dev/stdout || exit 1
+}
+
 function assert_is_installed {
   local -r name="$1"
 
-  if [[ ! $(command -v ${name}) ]]; then
+  if [[ ! $(command -v "${name}") ]]; then
     log_error "The binary '$name' is required by this script but is not installed or in the system's PATH."
     exit 1
   fi
@@ -235,20 +265,24 @@ function generate_consul_config {
   local -r redundancy_zone_tag="${18}"
   local -r disable_upgrade_migration="${19}"
   local -r upgrade_version_tag=${20}
+  # https://www.consul.io/docs/agent/options#ui-1
+  local -r ui_config_enabled=${21}
+  local -r acl_tokens_master="${22}"
+  local -r acl_tokens_agent="${23}"
   local -r config_path="$config_dir/$CONSUL_CONFIG_FILE"
 
-  shift 20
-  local -r recursors=("$@")
+  shift 23
+  # local -r policies=("$@")
 
   local instance_id=""
-  local instance_ip_address=""
+  # local hostname=""
+  # local instance_ip_address=""
   local instance_region=""
-  # https://www.consul.io/docs/agent/options#ui-1
-  local ui_config_enabled="false"
 
   instance_id=$(get_instance_id)
-  instance_ip_address=$(get_instance_ip_address)
+  # instance_ip_address=$(get_instance_ip_address)
   instance_region=$(get_instance_region)
+  # hostname="$(get_instance_hostname)"
 
   local retry_join_json=""
   if [[ -z "$cluster_tag_key" || -z "$cluster_tag_value" ]]; then
@@ -260,17 +294,8 @@ EOF
 )
   fi
 
-  local recursors_config=""
-  if (( ${#recursors[@]} != 0 )); then
-        recursors_config="\"recursors\" : [ "
-        for recursor in "${recursors[@]}"
-        do
-            recursors_config="${recursors_config}\"${recursor}\", "
-        done
-        recursors_config=$(echo "${recursors_config}"| sed 's/, $//')" ],"
-  fi
-
   local bootstrap_expect=""
+  local acl_configuration=""
   if [[ "$server" == "true" ]]; then
     local instance_tags=""
     local cluster_size=""
@@ -279,7 +304,34 @@ EOF
     cluster_size=$(get_cluster_size "$instance_tags" "$instance_region")
 
     bootstrap_expect="\"bootstrap_expect\": $cluster_size,"
-    ui_config_enabled="true"
+
+    acl_configuration=$(cat <<EOF
+"acl" : {
+  "enabled" : true,
+  "enable_token_persistence": true,
+  "default_policy" : "deny",
+  "down_policy" : "extend-cache",
+  "tokens": {
+    "master": "${acl_tokens_master}",
+    "agent": "${acl_tokens_agent}"
+  }
+},
+EOF
+)
+  fi
+
+  if [[ "$server" == "false" ]]; then
+    acl_configuration=$(cat <<EOF
+"acl" : {
+  "enabled" : true,
+  "default_policy" : "deny",
+  "down_policy" : "extend-cache",
+  "tokens": {
+    "agent": "${acl_tokens_agent}"
+  }
+},
+EOF
+)
   fi
 
   local autopilot_configuration
@@ -303,15 +355,32 @@ EOF
   fi
 
   local rpc_encryption_configuration=""
-  if [[ "$enable_rpc_encryption" == "true" && -n "$ca_path" && -n "$cert_file_path" && -n "$key_file_path" ]]; then
+  if [[ "$server" == "true" && "$enable_rpc_encryption" == "true" && -n "$ca_path" && -n "$cert_file_path" && -n "$key_file_path" ]]; then
     log_info "Creating RPC encryption configuration"
     rpc_encryption_configuration=$(cat <<EOF
-"verify_outgoing": true,
 "verify_incoming": true,
+"verify_outgoing": true,
 "verify_server_hostname": $verify_server_hostname,
 "ca_path": "$ca_path",
 "cert_file": "$cert_file_path",
 "key_file": "$key_file_path",
+"auto_encrypt": {
+  "allow_tls": true
+},
+EOF
+)
+  fi
+
+  if [[ "$server" == "false" && "$enable_rpc_encryption" == "true" && -n "$ca_path" ]]; then
+    log_info "Creating RPC encryption configuration"
+    rpc_encryption_configuration=$(cat <<EOF
+"verify_incoming": true,
+"verify_outgoing": true,
+"verify_server_hostname": $verify_server_hostname,
+"ca_path": "$ca_path",
+"auto_encrypt": {
+  "tls": true
+},
 EOF
 )
   fi
@@ -323,13 +392,14 @@ EOF
   "advertise_addr": "{{ GetPublicInterfaces | include \"name\" \"eth0\" | include \"type\" \"IPv6\" | include \"flags\" \"forwardable|up\" | attr \"address\" }}",
   "bind_addr": "{{ GetPublicInterfaces | include \"name\" \"eth0\" | include \"type\" \"IPv6\" | include \"flags\" \"forwardable|up\" | attr \"address\" }}",
   $bootstrap_expect
+  $acl_configuration
   "client_addr": "127.0.0.1 ::1",
   "addresses": {
     "dns": "127.0.0.1 ::1",
     "http": "127.0.0.1 ::1 {{ GetAllInterfaces | include \"name\" \"eth0\" | include \"flags\" \"up\" | exclude \"flags\" \"link-local unicast|link-local multicast|interface-local multicast\"  | join \"address\" \" \" }}"
   },
   "datacenter": "$datacenter",
-  $recursors_config
+  "node_name": "$instance_id",
   $retry_join_json
   "server": $server,
   $gossip_encryption_configuration
@@ -352,16 +422,25 @@ EOF
 function generate_systemd_config {
   umask 022
 
-  local -r systemd_config_path="$1"
-  local -r consul_config_dir="$2"
-  local -r consul_data_dir="$3"
-  local -r consul_systemd_stdout="$4"
-  local -r consul_systemd_stderr="$5"
-  local -r consul_bin_dir="$6"
-  local -r consul_user="$7"
+  local -r consul_config_dir="$1"
+  local -r consul_data_dir="$2"
+  local -r consul_systemd_stdout="$3"
+  local -r consul_systemd_stderr="$4"
+  local -r consul_bin_dir="$5"
+  local -r consul_user="$6"
+  local -r secrets_bucket_name="$7"
   shift 7
   local -r environment=("$@")
+
   local -r config_path="$consul_config_dir/$CONSUL_CONFIG_FILE"
+  local -r systemd_config_path="${CONSUL_SYSTEMD_CONFIG_PATH}"
+
+  local -r bootstrap_config=$(cat <<EOF
+[Service]
+Environment='CONSUL_SECRETS_BUCKET_NAME=${secrets_bucket_name}'
+
+EOF
+)
 
   log_info "Creating systemd config file to run Consul in $systemd_config_path"
 
@@ -370,6 +449,7 @@ function generate_systemd_config {
 Description="HashiCorp Consul - A service mesh solution"
 Documentation=https://www.consul.io/
 Requires=network-online.target
+Requires=ferm.service
 After=network-online.target
 After=ferm.service
 ConditionFileNotEmpty=$config_path
@@ -410,14 +490,27 @@ EOF
   echo -e "$service_config" >> "$systemd_config_path"
   echo -e "$log_config" >> "$systemd_config_path"
   echo -e "$install_config" >> "$systemd_config_path"
+
+  echo -e "$bootstrap_config" > "${CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH}"
 }
 
 function start_consul {
   log_info "Reloading systemd config and starting Consul"
 
+  local server="$1"
+
   sudo systemctl daemon-reload
   sudo systemctl enable consul.service
-  sudo systemctl restart consul.service
+
+  if [[ "$server" == "true" ]]
+  then
+    sudo systemctl enable consul-online.service
+    sudo systemctl enable consul-bootstrap.service
+
+    sudo systemctl restart consul.service
+    sudo systemctl restart consul-online.service
+    sudo systemctl restart consul-bootstrap.service
+  fi
 }
 
 # Based on: http://unix.stackexchange.com/a/7732/215969
@@ -427,6 +520,8 @@ function get_owner_of_path {
 }
 
 function run {
+  umask 027
+
   local server="false"
   local client="false"
   local config_dir=""
@@ -440,15 +535,15 @@ function run {
   local datacenter=""
   local upgrade_version_tag=""
   local enable_gossip_encryption="false"
-  local gossip_encryption_key=""
+  local secrets_bucket_name=""
   local enable_rpc_encryption="false"
   local verify_server_hostname="false"
   local ca_path=""
   local cert_file_path=""
   local key_file_path=""
   local environment=()
+  local ui_config_enabled="false"
   local skip_consul_config="false"
-  local recursors=()
   local cleanup_dead_servers="$DEFAULT_AUTOPILOT_CLEANUP_DEAD_SERVERS"
   local last_contact_threshold="$DEFAULT_AUTOPILOT_LAST_CONTACT_THRESHOLD"
   local max_trailing_logs="$DEFAULT_AUTOPILOT_MAX_TRAILING_LOGS"
@@ -545,13 +640,13 @@ function run {
         upgrade_version_tag="$2"
         shift
         ;;
+      --secrets-bucket-name)
+        assert_not_empty "$key" "$2"
+        secrets_bucket_name="$2"
+        shift
+        ;;
       --enable-gossip-encryption)
         enable_gossip_encryption="true"
-        ;;
-      --gossip-encryption-key)
-        assert_not_empty "$key" "$2"
-        gossip_encryption_key="$2"
-        shift
         ;;
       --enable-rpc-encryption)
         enable_rpc_encryption="true"
@@ -559,33 +654,16 @@ function run {
       --verify-server-hostname)
         verify_server_hostname="true"
         ;;
-      --ca-path)
-        assert_not_empty "$key" "$2"
-        ca_path="$2"
-        shift
-        ;;
-      --cert-file-path)
-        assert_not_empty "$key" "$2"
-        cert_file_path="$2"
-        shift
-        ;;
-      --key-file-path)
-        assert_not_empty "$key" "$2"
-        key_file_path="$2"
-        shift
-        ;;
       --environment)
         assert_not_empty "$key" "$2"
         environment+=("$2")
         shift
         ;;
+      --ui)
+        ui_config_enabled="true"
+        ;;
       --skip-consul-config)
         skip_consul_config="true"
-        ;;
-      --recursor)
-        assert_not_empty "$key" "$2"
-        recursors+=("$2")
-        shift
         ;;
       --help)
         print_usage
@@ -605,7 +683,6 @@ function run {
     log_error "Exactly one of --server or --client must be set."
     exit 1
   fi
-
   assert_is_installed "systemctl"
   assert_is_installed "aws"
   assert_is_installed "curl"
@@ -633,16 +710,58 @@ function run {
     datacenter=$(get_instance_region)
   fi
 
+  local type
+
+  if [[ "$server" == "true" ]]; then
+    type="server"
+  else
+    type="client"
+  fi
+
+  local ca_path=""
+  local cert_file_path=""
+  local key_file_path=""
+
+  local acl_tokens_master=""
+  local acl_tokens_agent=""
+
+  local gossip_encryption_key=""
+
   if [[ "$skip_consul_config" == "true" ]]; then
     log_info "The --skip-consul-config flag is set, so will not generate a default Consul config file."
   else
+    assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
+
     if [[ "$enable_gossip_encryption" == "true" ]]; then
-      assert_not_empty "--gossip-encryption-key" "$gossip_encryption_key"
+      gossip_encryption_key="$(get_object_value "${secrets_bucket_name}" "${type}/consul/gossip-encryption-key.txt")"
     fi
+
     if [[ "$enable_rpc_encryption" == "true" ]]; then
-      assert_not_empty "--ca-path" "$ca_path"
-      assert_not_empty "--cert-file-path" "$cert_file_path"
-      assert_not_empty "--key_file_path" "$key_file_path"
+      local tls_path
+      local tls_ca_path
+
+      tls_path="$(cd "$SCRIPT_DIR/../tls" && pwd)"
+      tls_ca_path="$(cd "$SCRIPT_DIR/../tls/ca" && pwd)"
+
+      ca_path="${tls_ca_path}/consul-agent-ca.pem"
+      cert_file_path="${tls_path}/${datacenter}-server-consul-0.pem"
+      key_file_path="${tls_path}/${datacenter}-server-consul-0-key.pem"
+
+      if [[ "$server" == "true" ]]
+      then
+        get_object "${secrets_bucket_name}" "${type}/consul/consul-agent-ca.pem" "${ca_path}" "${user}"
+        get_object "${secrets_bucket_name}" "${type}/consul/${datacenter}-server-consul-0.pem" "${cert_file_path}" "${user}"
+        get_object "${secrets_bucket_name}" "${type}/consul/${datacenter}-server-consul-0-key.pem" "${key_file_path}" "${user}"
+      else
+        get_object "${secrets_bucket_name}" "${type}/consul/consul-agent-ca.pem" "${ca_path}" "${user}"
+      fi
+    fi
+
+    acl_tokens_agent="$(get_object_value "${secrets_bucket_name}" "${type}/consul/acl-token-agent.txt")"
+
+    if [[ "$server" == "true" ]]
+    then
+      acl_tokens_master="$(get_object_value "${secrets_bucket_name}" "${type}/consul/acl-token-master.txt")"
     fi
 
     generate_consul_config "$server" \
@@ -665,11 +784,13 @@ function run {
       "$redundancy_zone_tag" \
       "$disable_upgrade_migration" \
       "$upgrade_version_tag" \
-      "${recursors[@]}"
+      "$ui_config_enabled" \
+      "$acl_tokens_master" \
+      "$acl_tokens_agent"
   fi
 
-  generate_systemd_config "$SYSTEMD_CONFIG_PATH" "$config_dir" "$data_dir" "$systemd_stdout" "$systemd_stderr" "$bin_dir" "$user" "${environment[@]}"
-  start_consul
+  generate_systemd_config "$config_dir" "$data_dir" "$systemd_stdout" "$systemd_stderr" "$bin_dir" "$user" "$secrets_bucket_name" "${environment[@]}"
+  start_consul "$server"
 }
 
 run "$@"

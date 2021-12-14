@@ -1,0 +1,16 @@
+[Unit]
+Description="Consul Online"
+Requires=network-online.target
+After=network-online.target
+ConditionFileNotEmpty=/opt/consul/config/default.json
+Requires=consul.service
+After=consul.service
+
+[Service]
+Type=oneshot
+User=consul
+Group=consul
+ExecStart=/opt/consul/bin/consul-online
+
+[Install]
+WantedBy=consul-online.target multi-user.target
