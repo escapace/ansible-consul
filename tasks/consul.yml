@@ -88,4 +88,4 @@
   when: consul_health_check | bool is true
 
 - include_tasks: storage-setup.yml
-  when: (storage_setup_physical_device is defined) and (storage_setup_physical_device | length > 0) and (consul_volume|bool)
+  when: (storage_setup_volume_group_name is defined) and (storage_setup_physical_device is defined) and (storage_setup_physical_device | length > 0) and (consul_volume|bool)
