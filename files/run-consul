@@ -255,7 +255,7 @@ function generate_consul_config {
   local -r gossip_encryption_key="${8}"
   local -r enable_rpc_encryption="${9}"
   local -r verify_server_hostname="${10}"
-  local -r ca_path="${11}"
+  local -r ca_file="${11}"
   local -r cert_file_path="${12}"
   local -r key_file_path="${13}"
   local -r cleanup_dead_servers="${14}"
@@ -355,32 +355,28 @@ EOF
   fi
 
   local rpc_encryption_configuration=""
-  if [[ "$server" == "true" && "$enable_rpc_encryption" == "true" && -n "$ca_path" && -n "$cert_file_path" && -n "$key_file_path" ]]; then
+  if [[ "$server" == "true" && "$enable_rpc_encryption" == "true" && -n "$ca_file" && -n "$cert_file_path" && -n "$key_file_path" ]]; then
     log_info "Creating RPC encryption configuration"
     rpc_encryption_configuration=$(cat <<EOF
+"ca_file": "$ca_file",
+"cert_file": "$cert_file_path",
+"key_file": "$key_file_path",
 "verify_incoming": true,
 "verify_outgoing": true,
 "verify_server_hostname": $verify_server_hostname,
-"ca_path": "$ca_path",
-"cert_file": "$cert_file_path",
-"key_file": "$key_file_path",
-"auto_encrypt": {
-  "allow_tls": true
-},
 EOF
 )
   fi
 
-  if [[ "$server" == "false" && "$enable_rpc_encryption" == "true" && -n "$ca_path" ]]; then
+  if [[ "$server" == "false" && "$enable_rpc_encryption" == "true" && -n "$ca_file" ]]; then
     log_info "Creating RPC encryption configuration"
     rpc_encryption_configuration=$(cat <<EOF
+"ca_file": "$ca_file",
+"cert_file": "$cert_file_path",
+"key_file": "$key_file_path",
 "verify_incoming": true,
 "verify_outgoing": true,
 "verify_server_hostname": $verify_server_hostname,
-"ca_path": "$ca_path",
-"auto_encrypt": {
-  "tls": true
-},
 EOF
 )
   fi
@@ -394,10 +390,6 @@ EOF
   $bootstrap_expect
   $acl_configuration
   "client_addr": "127.0.0.1 ::1",
-  "addresses": {
-    "dns": "127.0.0.1 ::1",
-    "http": "127.0.0.1 ::1 {{ GetAllInterfaces | include \"name\" \"eth0\" | include \"flags\" \"up\" | exclude \"flags\" \"link-local unicast|link-local multicast|interface-local multicast\"  | join \"address\" \" \" }}"
-  },
   "datacenter": "$datacenter",
   "node_name": "$instance_id",
   $retry_join_json
@@ -422,25 +414,19 @@ EOF
 function generate_systemd_config {
   umask 022
 
-  local -r consul_config_dir="$1"
-  local -r consul_data_dir="$2"
-  local -r consul_systemd_stdout="$3"
-  local -r consul_systemd_stderr="$4"
-  local -r consul_bin_dir="$5"
-  local -r consul_user="$6"
-  local -r secrets_bucket_name="$7"
-  shift 7
+  local -r server="$1"
+  local -r consul_config_dir="$2"
+  local -r consul_data_dir="$3"
+  local -r consul_systemd_stdout="$4"
+  local -r consul_systemd_stderr="$5"
+  local -r consul_bin_dir="$6"
+  local -r consul_user="$7"
+  local -r secrets_bucket_name="$8"
+  shift 8
   local -r environment=("$@")
 
   local -r config_path="$consul_config_dir/$CONSUL_CONFIG_FILE"
   local -r systemd_config_path="${CONSUL_SYSTEMD_CONFIG_PATH}"
-
-  local -r bootstrap_config=$(cat <<EOF
-[Service]
-Environment='CONSUL_SECRETS_BUCKET_NAME=${secrets_bucket_name}'
-
-EOF
-)
 
   log_info "Creating systemd config file to run Consul in $systemd_config_path"
 
@@ -491,7 +477,19 @@ EOF
   echo -e "$log_config" >> "$systemd_config_path"
   echo -e "$install_config" >> "$systemd_config_path"
 
-  echo -e "$bootstrap_config" > "${CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH}"
+
+  if [[ "$server" == "true" ]]
+  then
+    log_info "Creating systemd bootstrap config file ${CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH}"
+
+    local -r bootstrap_config=$(cat <<EOF
+[Service]
+Environment='CONSUL_SECRETS_BUCKET_NAME=${secrets_bucket_name}'
+
+EOF
+)
+    echo -e "$bootstrap_config" > "${CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH}"
+  fi
 }
 
 function start_consul {
@@ -510,6 +508,8 @@ function start_consul {
     sudo systemctl restart consul.service
     sudo systemctl restart consul-online.service
     sudo systemctl restart consul-bootstrap.service
+  else
+    sudo systemctl restart consul.service
   fi
 }
 
@@ -538,7 +538,7 @@ function run {
   local secrets_bucket_name=""
   local enable_rpc_encryption="false"
   local verify_server_hostname="false"
-  local ca_path=""
+  local ca_file=""
   local cert_file_path=""
   local key_file_path=""
   local environment=()
@@ -718,7 +718,7 @@ function run {
     type="client"
   fi
 
-  local ca_path=""
+  local ca_file=""
   local cert_file_path=""
   local key_file_path=""
 
@@ -738,23 +738,18 @@ function run {
 
     if [[ "$enable_rpc_encryption" == "true" ]]; then
       local tls_path
-      local tls_ca_path
+      local tls_ca_file
 
       tls_path="$(cd "$SCRIPT_DIR/../tls" && pwd)"
-      tls_ca_path="$(cd "$SCRIPT_DIR/../tls/ca" && pwd)"
+      tls_ca_file="$(cd "$SCRIPT_DIR/../tls/ca" && pwd)"
 
-      ca_path="${tls_ca_path}/consul-agent-ca.pem"
-      cert_file_path="${tls_path}/${datacenter}-server-consul-0.pem"
-      key_file_path="${tls_path}/${datacenter}-server-consul-0-key.pem"
+      ca_file="${tls_ca_file}/consul-agent-ca.pem"
+      cert_file_path="${tls_path}/${datacenter}-${type}-consul-0.pem"
+      key_file_path="${tls_path}/${datacenter}-${type}-consul-0-key.pem"
 
-      if [[ "$server" == "true" ]]
-      then
-        get_object "${secrets_bucket_name}" "${type}/consul/consul-agent-ca.pem" "${ca_path}" "${user}"
-        get_object "${secrets_bucket_name}" "${type}/consul/${datacenter}-server-consul-0.pem" "${cert_file_path}" "${user}"
-        get_object "${secrets_bucket_name}" "${type}/consul/${datacenter}-server-consul-0-key.pem" "${key_file_path}" "${user}"
-      else
-        get_object "${secrets_bucket_name}" "${type}/consul/consul-agent-ca.pem" "${ca_path}" "${user}"
-      fi
+      get_object "${secrets_bucket_name}" "${type}/consul/consul-agent-ca.pem" "${ca_file}" "${user}"
+      get_object "${secrets_bucket_name}" "${type}/consul/${datacenter}-${type}-consul-0.pem" "${cert_file_path}" "${user}"
+      get_object "${secrets_bucket_name}" "${type}/consul/${datacenter}-${type}-consul-0-key.pem" "${key_file_path}" "${user}"
     fi
 
     acl_tokens_agent="$(get_object_value "${secrets_bucket_name}" "${type}/consul/acl-token-agent.txt")"
@@ -774,7 +769,7 @@ function run {
       "$gossip_encryption_key" \
       "$enable_rpc_encryption" \
       "$verify_server_hostname" \
-      "$ca_path" \
+      "$ca_file" \
       "$cert_file_path" \
       "$key_file_path" \
       "$cleanup_dead_servers" \
@@ -789,7 +784,7 @@ function run {
       "$acl_tokens_agent"
   fi
 
-  generate_systemd_config "$config_dir" "$data_dir" "$systemd_stdout" "$systemd_stderr" "$bin_dir" "$user" "$secrets_bucket_name" "${environment[@]}"
+  generate_systemd_config "$server" "$config_dir" "$data_dir" "$systemd_stdout" "$systemd_stderr" "$bin_dir" "$user" "$secrets_bucket_name" "${environment[@]}"
   start_consul "$server"
 }
 
