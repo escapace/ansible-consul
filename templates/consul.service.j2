@@ -1,10 +1,10 @@
 [Unit]
 Description="HashiCorp Consul - A service mesh solution"
 Documentation=https://www.consul.io/
-Requires=network-online.target
-Requires=ferm.service
-After=network-online.target
 After=ferm.service
+After=network-online.target
+Wants=ferm.service
+Wants=network-online.target
 
 ConditionFileNotEmpty=/opt/consul/config/default.json
 [Service]
@@ -16,6 +16,3 @@ KillMode=process
 Restart=on-failure
 TimeoutSec=300s
 LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target

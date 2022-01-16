@@ -7,7 +7,7 @@ umask 027
 readonly DEFAULT_INSTALL_PATH="/opt/consul"
 readonly DEFAULT_CONSUL_USER="consul"
 readonly DOWNLOAD_PACKAGE_PATH="/tmp/consul.zip"
-readonly SYSTEM_BIN_DIR="/usr/local/bin"
+readonly SYSTEM_BIN_DIR="/usr/bin"
 readonly SCRIPT_NAME="$(basename "$0")"
 
 function print_usage {
@@ -125,6 +125,8 @@ function create_consul_install_paths {
   sudo mkdir -p "$path/data"
   sudo mkdir -p "$path/tls/ca"
   sudo mkdir -p "$path/policy"
+
+  chmod 755 "$path" "$path/bin"
 
   log_info "Changing ownership of $path to $username"
   sudo chown -R "$username:$username" "$path"

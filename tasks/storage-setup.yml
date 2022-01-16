@@ -1,9 +1,15 @@
 ---
 
+- name: import escapace.storage_setup role
+  import_role:
+    name: escapace.storage_setup
+
 - name: systemd drop-in for options
   template:
     src:  "consul-service-storage-options.conf.j2"
     dest: "/etc/systemd/system/consul.service.d/020-storage-options.conf"
+    owner: root
+    group: root
     mode: 0644
 
 - name: /opt/consul/data directory
@@ -12,10 +18,12 @@
     state: directory
     owner: consul
     group: consul
-    mode: '0700'
+    mode: 0700
 
 - name: consul storage configuration
   template:
     src: storage-setup-consul.conf.j2
     dest: /etc/filesystems.d/30-consul.conf
+    owner: root
+    group: root
     mode: 0644

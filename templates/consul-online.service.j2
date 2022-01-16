@@ -1,16 +1,14 @@
 [Unit]
 Description="Consul Online"
-Requires=network-online.target
-After=network-online.target
 ConditionFileNotEmpty=/opt/consul/config/default.json
 Requires=consul.service
 After=consul.service
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=oneshot
 User=consul
 Group=consul
-ExecStart=/opt/consul/bin/consul-online
-
-[Install]
-WantedBy=consul-online.target multi-user.target
+ExecStart=retry /opt/consul/bin/consul-online
+Environment=RETRY_MAX_ATTEMPTS=0

@@ -1,5 +1,8 @@
 ---
 
+- name: create the consul ferm conf files
+  template: src=templates/ferm-consul-health-check.conf.j2 dest=/etc/ferm/ferm.d/1010-consul-health-check.conf owner=root group=root mode=0600
+
 - name: create temporary directory
   file:
     path: /tmp/health-check
@@ -15,7 +18,7 @@
     dest: /tmp/health-check
     owner: root
     group: root
-    mode: "0755"
+    mode: 0755
     remote_src: yes
   changed_when: false
 
@@ -25,7 +28,7 @@
     dest: /opt/consul/bin/consul-health-check
     owner: consul
     group: consul
-    mode: "0755"
+    mode: 0755
     remote_src: yes
   changed_when: false
 

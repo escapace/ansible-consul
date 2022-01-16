@@ -1,6 +1,6 @@
 ---
 
-consul_version: 1.10.4
+consul_version: 1.11.1
 
 consul_health_check: false
 consul_health_check_port: 8080
@@ -15,10 +15,3 @@ consul_volume_name: consul
 consul_volume_device: "/dev/{{ storage_setup_volume_group_name }}/{{ consul_volume_name }}"
 consul_volume_fs_type: "xfs"
 consul_volume_mount: /opt/consul/data
-
-# consul_ca_file_path:
-# consul_cert_file_path:
-# consul_key_fie_path:
-# consul_remote_ca_file_path: /tmp/consul-ca.pem
-# consul_remote_cert_file_path: /tmp/consul-cert.pem
-# consul_remote_key_file_path: /tmp/consul-key.pem

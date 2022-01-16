@@ -6,14 +6,28 @@ set -o pipefail
 
 umask 027
 
-readonly SCRIPT_NAME="$(basename "$0")"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly CONSUL_CONFIG_DIR="$(cd "$SCRIPT_DIR/../config" && pwd)"
+SCRIPT_NAME=
+SCRIPT_NAME="$(basename "$0")"
+
+SCRIPT_DIR=
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+CONSUL_CONFIG_DIR=
+CONSUL_CONFIG_DIR="$(cd "$SCRIPT_DIR/../config" && pwd)"
+
+CONSUL_MASTER_TOKEN=
+CONSUL_MASTER_TOKEN="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.master')"
+
+CONSUL_AGENT_TOKEN=
+CONSUL_AGENT_TOKEN="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.agent')"
+
+CONSUL_POLICY_DIR=
+CONSUL_POLICY_DIR="$(cd "$SCRIPT_DIR/../policy" && pwd)"
+
+CONSUL_BIN_DIR=
+CONSUL_BIN_DIR="$(cd "$SCRIPT_DIR/../bin" && pwd)"
+
 readonly CONSUL_HTTP_ADDR="http://127.0.0.1:8500"
-readonly CONSUL_MASTER_TOKEN="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.master')"
-readonly CONSUL_AGENT_TOKEN="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.agent')"
-readonly CONSUL_POLICY_DIR="$(cd "$SCRIPT_DIR/../policy" && pwd)"
-readonly CONSUL_BIN_DIR="$(cd "$SCRIPT_DIR/../bin" && pwd)"
 
 function log {
   local -r level="$1"
@@ -69,7 +83,7 @@ function consul_agent_self_leader() {
 function consul_is_leader() {
   until [[ "$(consul_agent_self_leader)" == "true" ]] || [[ "$(consul_agent_self_leader)" == "false" ]]; do
     echo "Waiting for Consul to get a leader..."
-    sleep 2
+    sleep 5
   done
 
   [[ "$(consul_agent_self_leader)" == "true" ]]

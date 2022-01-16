@@ -1,5 +1,13 @@
 [Unit]
 Description=Consul Online
-RefuseManualStart=true
-Requires=consul-online.service consul.service
-After=consul-online.service consul.service
+Requires=consul-online.service
+After=consul-online.service
+Requires=consul.service
+After=consul.service
+{% if consul_server | bool is true %}
+Requires=consul-bootstrap.service
+After=consul-bootstrap.service
+{% endif %}
+
+[Install]
+WantedBy=multi-user.target
