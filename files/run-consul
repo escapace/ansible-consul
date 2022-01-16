@@ -7,17 +7,17 @@ set -o pipefail
 
 umask 027
 
+SCRIPT_DIR=
+SCRIPT_NAME=
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="$(basename "$0")"
+
 readonly AWS_ASG_TAG_KEY="aws:autoscaling:groupName"
 
 readonly CONSUL_CONFIG_FILE="default.json"
-readonly CONSUL_SYSTEMD_CONFIG_PATH="/etc/systemd/system/consul.service"
+
+readonly CONSUL_SYSTEMD_CONFIG_PATH="/usr/lib/systemd/system/consul.service"
 readonly CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH="/etc/systemd/system/consul-bootstrap.service.d/010-secrets-bucket.conf"
-
-readonly EC2_INSTANCE_METADATA_URL="http://169.254.169.254/latest/meta-data"
-readonly EC2_INSTANCE_DYNAMIC_DATA_URL="http://169.254.169.254/latest/dynamic"
-
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SCRIPT_NAME="$(basename "$0")"
 
 readonly MAX_RETRIES=30
 readonly SLEEP_BETWEEN_RETRIES_SEC=10
@@ -28,6 +28,10 @@ readonly DEFAULT_AUTOPILOT_MAX_TRAILING_LOGS="250"
 readonly DEFAULT_AUTOPILOT_SERVER_STABILIZATION_TIME="10s"
 readonly DEFAULT_AUTOPILOT_REDUNDANCY_ZONE_TAG="az"
 readonly DEFAULT_AUTOPILOT_DISABLE_UPGRADE_MIGRATION="false"
+
+set -o allexport
+source "/etc/sysconfig/ec2-environment"
+set +o allexport
 
 function print_usage {
   echo
@@ -41,7 +45,7 @@ function print_usage {
   echo -e "  --client\t\tIf set, run in client mode. Optional. Exactly one of --server or --client must be set."
   echo -e "  --cluster-tag-key\tAutomatically form a cluster with Instances that have this tag key and the tag value in --cluster-tag-value. Optional."
   echo -e "  --cluster-tag-value\tAutomatically form a cluster with Instances that have the tag key in --cluster-tag-key and this tag value. Optional."
-  echo -e "  --datacenter\t\tThe name of the datacenter Consul is running in. Optional. If not specified, will default to AWS region name."
+  echo -e "  --region\t\tThe name of the region Consul is running in. Optional. If not specified, will default to AWS region name."
   echo -e "  --config-dir\t\tThe path to the Consul config folder. Optional. Default is the absolute path of '../config', relative to this script."
   echo -e "  --data-dir\t\tThe path to the Consul data folder. Optional. Default is the absolute path of '../data', relative to this script."
   echo -e "  --systemd-stdout\t\tThe StandardOutput option of the systemd unit.  Optional.  If not configured, uses systemd's default (journal)."
@@ -50,11 +54,14 @@ function print_usage {
   echo -e "  --user\t\tThe user to run Consul as. Optional. Default is to use the owner of --config-dir."
   echo -e "  --enable-gossip-encryption\t\tEnable encryption of gossip traffic between nodes. Optional. Must also specify --gossip-encryption-key."
   echo -e "  --secrets-bucket-name\t\tAWS S3 secrets bucket name."
-  echo -e "  --enable-rpc-encryption\t\tEnable encryption of RPC traffic between nodes. Optional. Must also specify --ca-file-path, --cert-file-path and --key-file-path."
-  echo -e "  --verify-server-hostname\tWhen passed in, enable server hostname verification as part of RPC encryption. Each server in Consul should get their own certificate that contains SERVERNAME.DATACENTERNAME.consul in the hostname or SAN. This prevents an authenticated agent from being converted into a server that streams all data, bypassing ACLs."
+  echo -e "  --enable-tls-encryption\t\tEnable encryption of traffic between nodes. Optional. Must also specify --ca-file-path, --cert-file-path and --key-file-path."
+  echo -e "  --verify-server-hostname\tWhen passed in, enable server hostname verification as part of RPC encryption. Each server in Consul should get their own certificate that contains SERVERNAME.REGION.consul in the hostname or SAN. This prevents an authenticated agent from being converted into a server that streams all data, bypassing ACLs."
+  echo -e "  --verify-incoming-https\tIf set to true, Consul requires that all incoming HTTPS connections make use of TLS."
   echo -e "  --environment\t\tA single environment variable in the key/value pair form 'KEY=\"val\"' to pass to Consul as environment variable when starting it up. Repeat this option for additional variables. Optional."
   echo -e "  --skip-consul-config\tIf this flag is set, don't generate a Consul configuration file. Optional. Default is false."
   echo -e "  --ui\tEnables the service of the web UI from this agent. Optional."
+  echo -e "  --interface\tBind to interface. Optional."
+  echo -e "  --ipv6\tUse IPv6. Optional."
   echo
   echo "Options for Consul Autopilot:"
   echo
@@ -112,35 +119,9 @@ function assert_not_empty {
   fi
 }
 
-function lookup_path_in_instance_metadata {
-  local -r path="$1"
-  curl --silent --show-error --location "$EC2_INSTANCE_METADATA_URL/$path/"
-}
-
-function lookup_path_in_instance_dynamic_data {
-  local -r path="$1"
-  curl --silent --show-error --location "$EC2_INSTANCE_DYNAMIC_DATA_URL/$path/"
-}
-
-function get_instance_ip_address {
-  lookup_path_in_instance_metadata "local-ipv4"
-}
-
-function get_instance_hostname {
-  lookup_path_in_instance_metadata "hostname" | cut -d. -f1
-}
-
-function get_instance_id {
-  lookup_path_in_instance_metadata "instance-id"
-}
-
-function get_instance_region {
-  lookup_path_in_instance_dynamic_data "instance-identity/document" | jq -r ".region"
-}
-
 function get_instance_tags {
   local -r instance_id="$1"
-  local -r instance_region="$2"
+  local -r instance_region="${EC2_INSTANCE_REGION}"
   local tags=""
   local count_tags=""
 
@@ -167,7 +148,7 @@ function get_instance_tags {
 
 function get_asg_size {
   local -r asg_name="$1"
-  local -r aws_region="$2"
+  local -r aws_region="${EC2_INSTANCE_REGION}"
   local asg_json=""
 
   log_info "Looking up the size of the Auto Scaling Group $asg_name in $aws_region"
@@ -177,7 +158,7 @@ function get_asg_size {
 
 function get_cluster_size {
   local -r instance_tags="$1"
-  local -r aws_region="$2"
+  local -r aws_region="${EC2_INSTANCE_REGION}"
 
   local asg_name=""
   asg_name=$(get_tag_value "$instance_tags" "$AWS_ASG_TAG_KEY")
@@ -185,7 +166,7 @@ function get_cluster_size {
     log_warn "This EC2 Instance does not appear to be part of an Auto Scaling Group, so cannot determine cluster size. Setting cluster size to 1."
     echo 1
   else
-    get_asg_size "$asg_name" "$aws_region"
+    get_asg_size "$asg_name"
   fi
 }
 
@@ -242,6 +223,70 @@ function split_by_lines {
   done
 }
 
+function address_type {
+  local -r ipv6="${1}"
+  local type
+
+  if [[ "$ipv6" == "true" ]]
+  then
+    type="ipv6"
+  else
+    type="ipv4"
+  fi
+
+  echo "${type}"
+}
+
+function get_consul_address {
+  local -r server="${1}"
+  local -r ipv6="${2}"
+  local -r interface="${3}"
+
+  local type
+  local variable_reference
+
+  type="$(address_type "${ipv6}")"
+
+  variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_ADDRESS"
+
+  # if [[ "${server}" == "false" && -v "EC2_INSTANCE_${interface^^}_${type^^}_PREFIX_ADDRESS" ]]
+  # then
+  #   variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_PREFIX_ADDRESS"
+  # else
+  #   variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_ADDRESS"
+  # fi
+
+  echo "${!variable_reference}"
+}
+
+function get_vpc_cidr {
+  local -r ipv6="${1}"
+  local -r interface="${2}"
+
+  local type
+  local variable_reference
+
+  type="$(address_type "${ipv6}")"
+
+  variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_VPC_CIDR"
+
+  echo "${!variable_reference}"
+}
+
+function get_prefix_cidr {
+  local -r ipv6="${1}"
+  local -r interface="${2}"
+
+  local type
+  local variable_reference
+
+  type="$(address_type "${ipv6}")"
+
+  variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_PREFIX_CIDR"
+
+  echo "${!variable_reference}"
+}
+
 function generate_consul_config {
   umask 027
 
@@ -250,48 +295,61 @@ function generate_consul_config {
   local -r user="${3}"
   local -r cluster_tag_key="${4}"
   local -r cluster_tag_value="${5}"
-  local -r datacenter="${6}"
+  local -r region="${6}"
   local -r enable_gossip_encryption="${7}"
   local -r gossip_encryption_key="${8}"
-  local -r enable_rpc_encryption="${9}"
+  local -r enable_tls_encryption="${9}"
   local -r verify_server_hostname="${10}"
-  local -r ca_file="${11}"
-  local -r cert_file_path="${12}"
-  local -r key_file_path="${13}"
-  local -r cleanup_dead_servers="${14}"
-  local -r last_contact_threshold="${15}"
-  local -r max_trailing_logs="${16}"
-  local -r server_stabilization_time="${17}"
-  local -r redundancy_zone_tag="${18}"
-  local -r disable_upgrade_migration="${19}"
-  local -r upgrade_version_tag=${20}
-  # https://www.consul.io/docs/agent/options#ui-1
-  local -r ui_config_enabled=${21}
-  local -r acl_tokens_master="${22}"
-  local -r acl_tokens_agent="${23}"
+  local -r verify_incoming_https="${11}"
+  local -r ca_file_path="${12}"
+  local -r cert_file_path="${13}"
+  local -r key_file_path="${14}"
+  local -r cleanup_dead_servers="${15}"
+  local -r last_contact_threshold="${16}"
+  local -r max_trailing_logs="${17}"
+  local -r server_stabilization_time="${18}"
+  local -r redundancy_zone_tag="${19}"
+  local -r disable_upgrade_migration="${20}"
+  local -r upgrade_version_tag=${21}
+  local -r ui_config_enabled=${22}
+  local -r acl_tokens_master="${23}"
+  local -r acl_tokens_agent="${24}"
+  local -r ipv6="${25}"
+  local -r interface="${26}"
   local -r config_path="$config_dir/$CONSUL_CONFIG_FILE"
 
-  shift 23
-  # local -r policies=("$@")
+  shift 26
 
-  local instance_id=""
+  local advertise_addr
+  local bind_addr
+  local instance_id="${EC2_INSTANCE_ID}"
+  local instance_region="${EC2_INSTANCE_REGION}"
+
+  advertise_addr="$(get_consul_address "${server}" "${ipv6}" "${interface}")"
+  bind_addr="$(get_consul_address "${server}" "${ipv6}" "${interface}")"
+
   # local hostname=""
   # local instance_ip_address=""
-  local instance_region=""
-
-  instance_id=$(get_instance_id)
   # instance_ip_address=$(get_instance_ip_address)
-  instance_region=$(get_instance_region)
   # hostname="$(get_instance_hostname)"
 
   local retry_join_json=""
   if [[ -z "$cluster_tag_key" || -z "$cluster_tag_value" ]]; then
     log_warn "Either the cluster tag key ($cluster_tag_key) or value ($cluster_tag_value) is empty. Will not automatically try to form a cluster based on EC2 tags."
   else
-    retry_join_json=$(cat <<EOF
+
+    if [[ "$ipv6" == "false" ]]
+    then
+      retry_join_json=$(cat <<EOF
+"retry_join": ["provider=aws addr_type=private_v4 region=$instance_region tag_key=$cluster_tag_key tag_value=$cluster_tag_value"],
+EOF
+)
+    else
+      retry_join_json=$(cat <<EOF
 "retry_join": ["provider=aws addr_type=public_v6 region=$instance_region tag_key=$cluster_tag_key tag_value=$cluster_tag_value"],
 EOF
 )
+    fi
   fi
 
   local bootstrap_expect=""
@@ -300,8 +358,8 @@ EOF
     local instance_tags=""
     local cluster_size=""
 
-    instance_tags=$(get_instance_tags "$instance_id" "$instance_region")
-    cluster_size=$(get_cluster_size "$instance_tags" "$instance_region")
+    instance_tags=$(get_instance_tags "$instance_id")
+    cluster_size=$(get_cluster_size "$instance_tags")
 
     bootstrap_expect="\"bootstrap_expect\": $cluster_size,"
 
@@ -354,29 +412,30 @@ EOF
     gossip_encryption_configuration="\"encrypt\": \"$gossip_encryption_key\","
   fi
 
-  local rpc_encryption_configuration=""
-  if [[ "$server" == "true" && "$enable_rpc_encryption" == "true" && -n "$ca_file" && -n "$cert_file_path" && -n "$key_file_path" ]]; then
-    log_info "Creating RPC encryption configuration"
-    rpc_encryption_configuration=$(cat <<EOF
-"ca_file": "$ca_file",
+  local tls_configuration=""
+
+  if [[ "$enable_tls_encryption" == "true" && -n "$ca_file_path" && -n "$cert_file_path" && -n "$key_file_path" ]]; then
+    log_info "Creating TLS encryption configuration"
+    tls_configuration=$(cat <<EOF
+"ca_file": "$ca_file_path",
 "cert_file": "$cert_file_path",
 "key_file": "$key_file_path",
-"verify_incoming": true,
+"verify_incoming_https": $verify_incoming_https,
+"verify_incoming_rpc": true,
 "verify_outgoing": true,
 "verify_server_hostname": $verify_server_hostname,
 EOF
 )
   fi
 
-  if [[ "$server" == "false" && "$enable_rpc_encryption" == "true" && -n "$ca_file" ]]; then
-    log_info "Creating RPC encryption configuration"
-    rpc_encryption_configuration=$(cat <<EOF
-"ca_file": "$ca_file",
-"cert_file": "$cert_file_path",
-"key_file": "$key_file_path",
-"verify_incoming": true,
-"verify_outgoing": true,
-"verify_server_hostname": $verify_server_hostname,
+  local connect_configuration=""
+  if [[ "$server" == "true" ]]
+  then
+    log_info "Creating Consul Connect configuration"
+    connect_configuration=$(cat <<EOF
+"connect": {
+  "enabled": true
+},
 EOF
 )
   fi
@@ -385,18 +444,28 @@ EOF
   local default_config_json
   default_config_json=$(cat <<EOF
 {
-  "advertise_addr": "{{ GetPublicInterfaces | include \"name\" \"eth0\" | include \"type\" \"IPv6\" | include \"flags\" \"forwardable|up\" | attr \"address\" }}",
-  "bind_addr": "{{ GetPublicInterfaces | include \"name\" \"eth0\" | include \"type\" \"IPv6\" | include \"flags\" \"forwardable|up\" | attr \"address\" }}",
+  "advertise_addr": "${advertise_addr}",
+  "bind_addr": "${bind_addr}",
   $bootstrap_expect
   $acl_configuration
   "client_addr": "127.0.0.1 ::1",
-  "datacenter": "$datacenter",
+  "addresses": {
+    "http": "127.0.0.1 ::1",
+    "https": "127.0.0.1 ::1 ${bind_addr}",
+    "grpc": "127.0.0.1 ::1 ${bind_addr}"
+  },
+  "ports": {
+    "https": 8501,
+    "grpc": 8502
+  },
+  "datacenter": "$region",
   "node_name": "$instance_id",
   $retry_join_json
   "server": $server,
   $gossip_encryption_configuration
-  $rpc_encryption_configuration
+  $tls_configuration
   $autopilot_configuration
+  $connect_configuration
   "telemetry": {
     "disable_compat_1.9": true
   },
@@ -422,6 +491,7 @@ function generate_systemd_config {
   local -r consul_bin_dir="$6"
   local -r consul_user="$7"
   local -r secrets_bucket_name="$8"
+
   shift 8
   local -r environment=("$@")
 
@@ -434,10 +504,10 @@ function generate_systemd_config {
 [Unit]
 Description="HashiCorp Consul - A service mesh solution"
 Documentation=https://www.consul.io/
-Requires=network-online.target
-Requires=ferm.service
-After=network-online.target
 After=ferm.service
+After=network-online.target
+Wants=ferm.service
+Wants=network-online.target
 ConditionFileNotEmpty=$config_path
 
 EOF
@@ -450,9 +520,11 @@ Group=$consul_user
 ExecStart=$consul_bin_dir/consul agent -config-dir $consul_config_dir -data-dir $consul_data_dir
 ExecReload=$consul_bin_dir/consul reload
 KillMode=process
+KillSignal=SIGTERM
+LimitNOFILE=65536
 Restart=on-failure
 TimeoutSec=300s
-LimitNOFILE=65536
+
 $(split_by_lines "Environment=" "${environment[@]}")
 
 EOF
@@ -492,25 +564,88 @@ EOF
   fi
 }
 
+function generate_ferm_config {
+  log_info "Writing ferm configuration"
+
+  local server="$1"
+  local ipv6="$2"
+  local interface="$3"
+
+  local template_path="/etc/ferm/ferm.d/1010-consul.conf"
+
+  local address
+  local domain
+  local prefix_cidr=""
+  local vpc_cidr
+
+  if [[ "$ipv6" == "true"  ]]
+  then
+    domain="ip6"
+  else
+    domain="ip"
+  fi
+
+  address="$(get_consul_address "${server}" "${ipv6}" "${interface}")"
+  vpc_cidr="$(get_vpc_cidr "${ipv6}" "${interface}")"
+
+  if [[ "$server" == "false"  ]]
+  then
+    prefix_cidr="$(get_prefix_cidr "${ipv6}" "${interface}")"
+  fi
+
+  local -r template=$(cat <<EOF
+domain (ip ip6) table filter {
+  chain OUTPUT {
+    daddr (169.254.169.254 fd00:ec2::254) proto tcp mod owner uid-owner "consul" ACCEPT;
+  }
+}
+
+domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").vpc_cidr }} daddr {{ (ds "data").address }} {
+  # lan serf: the serf lan port (tcp and udp)
+  proto (tcp udp) dport 8301 ACCEPT;
+
+  # http: the http api (tcp only)
+  # proto tcp dport 8500 ACCEPT;
+
+  # https: the https api (disabled)
+  proto tcp dport 8501 ACCEPT;
+
+  # grpc: the grpc api (disabled)
+  proto tcp dport 8502 ACCEPT;
+}
+
+{{ if bool ((ds "data").server) }}
+domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").vpc_cidr }} daddr {{ (ds "data").address }} {
+  # server: server rpc address (tcp only)
+  proto tcp dport 8300 ACCEPT;
+
+  # wan serf: the serf wan port (tcp and udp)
+  proto (tcp udp) dport 8302 ACCEPT;
+}
+{{ else }}
+domain ({{ (ds "data").domain }}) table filter chain INPUT daddr {{ (ds "data").address }} {
+  # sidecar proxy: sidecar service registrations
+  proto tcp dport 21000:21255 ACCEPT;
+}
+{{ end }}
+EOF
+)
+
+  echo "{ \"server\": ${server}, \"domain\": \"${domain}\", \"address\": \"${address}\", \"vpc_cidr\": \"${vpc_cidr}\", \"prefix_cidr\": \"${prefix_cidr}\" }" | jq '.' | gomplate \
+    -i "${template}" -d data=stdin:///data.json > "${template_path}"
+
+  chown root:root "${template_path}"
+  chmod 600 "${template_path}"
+}
+
 function start_consul {
   log_info "Reloading systemd config and starting Consul"
 
   local server="$1"
 
   sudo systemctl daemon-reload
-  sudo systemctl enable consul.service
-
-  if [[ "$server" == "true" ]]
-  then
-    sudo systemctl enable consul-online.service
-    sudo systemctl enable consul-bootstrap.service
-
-    sudo systemctl restart consul.service
-    sudo systemctl restart consul-online.service
-    sudo systemctl restart consul-bootstrap.service
-  else
-    sudo systemctl restart consul.service
-  fi
+  sudo systemctl enable consul-online.target
+  sudo systemctl restart ferm consul-online.target
 }
 
 # Based on: http://unix.stackexchange.com/a/7732/215969
@@ -532,18 +667,21 @@ function run {
   local user=""
   local cluster_tag_key=""
   local cluster_tag_value=""
-  local datacenter=""
+  local region=""
   local upgrade_version_tag=""
   local enable_gossip_encryption="false"
   local secrets_bucket_name=""
-  local enable_rpc_encryption="false"
+  local enable_tls_encryption="false"
   local verify_server_hostname="false"
-  local ca_file=""
+  local verify_incoming_https="false"
+  local ca_file_path=""
   local cert_file_path=""
   local key_file_path=""
   local environment=()
   local ui_config_enabled="false"
   local skip_consul_config="false"
+  local ipv6="false"
+  local interface="eth0"
   local cleanup_dead_servers="$DEFAULT_AUTOPILOT_CLEANUP_DEAD_SERVERS"
   local last_contact_threshold="$DEFAULT_AUTOPILOT_LAST_CONTACT_THRESHOLD"
   local max_trailing_logs="$DEFAULT_AUTOPILOT_MAX_TRAILING_LOGS"
@@ -601,9 +739,9 @@ function run {
         cluster_tag_value="$2"
         shift
         ;;
-      --datacenter)
+      --region)
         assert_not_empty "$key" "$2"
-        datacenter="$2"
+        region="$2"
         shift
         ;;
       --autopilot-cleanup-dead-servers)
@@ -648,11 +786,14 @@ function run {
       --enable-gossip-encryption)
         enable_gossip_encryption="true"
         ;;
-      --enable-rpc-encryption)
-        enable_rpc_encryption="true"
+      --enable-tls-encryption)
+        enable_tls_encryption="true"
         ;;
       --verify-server-hostname)
         verify_server_hostname="true"
+        ;;
+      --verify-incoming-https)
+        verify_incoming_https="true"
         ;;
       --environment)
         assert_not_empty "$key" "$2"
@@ -661,6 +802,14 @@ function run {
         ;;
       --ui)
         ui_config_enabled="true"
+        ;;
+      --ipv6)
+        ipv6="true"
+        ;;
+      --interface)
+        assert_not_empty "$key" "$2"
+        interface="$2"
+        shift
         ;;
       --skip-consul-config)
         skip_consul_config="true"
@@ -683,6 +832,7 @@ function run {
     log_error "Exactly one of --server or --client must be set."
     exit 1
   fi
+
   assert_is_installed "systemctl"
   assert_is_installed "aws"
   assert_is_installed "curl"
@@ -706,8 +856,8 @@ function run {
     user=$(get_owner_of_path "$config_dir")
   fi
 
-  if [[ -z "$datacenter" ]]; then
-    datacenter=$(get_instance_region)
+  if [[ -z "$region" ]]; then
+    region="${EC2_INSTANCE_REGION}"
   fi
 
   local type
@@ -718,9 +868,9 @@ function run {
     type="client"
   fi
 
-  local ca_file=""
-  local cert_file_path=""
-  local key_file_path=""
+  local consul_ca_file_path=""
+  local consul_cert_file_path=""
+  local consul_key_file_path=""
 
   local acl_tokens_master=""
   local acl_tokens_agent=""
@@ -736,20 +886,34 @@ function run {
       gossip_encryption_key="$(get_object_value "${secrets_bucket_name}" "${type}/consul/gossip-encryption-key.txt")"
     fi
 
-    if [[ "$enable_rpc_encryption" == "true" ]]; then
+    if [[ "$enable_tls_encryption" == "true" ]]; then
       local tls_path
-      local tls_ca_file
+      local tls_ca_path
 
       tls_path="$(cd "$SCRIPT_DIR/../tls" && pwd)"
-      tls_ca_file="$(cd "$SCRIPT_DIR/../tls/ca" && pwd)"
+      tls_ca_path="$(cd "$SCRIPT_DIR/../tls/ca" && pwd)"
 
-      ca_file="${tls_ca_file}/consul-agent-ca.pem"
-      cert_file_path="${tls_path}/${datacenter}-${type}-consul-0.pem"
-      key_file_path="${tls_path}/${datacenter}-${type}-consul-0-key.pem"
+      consul_ca_file_path="${tls_ca_path}/consul-agent-ca.pem"
+      consul_cert_file_path="${tls_path}/${region}-${type}-consul-0.pem"
+      consul_key_file_path="${tls_path}/${region}-${type}-consul-0-key.pem"
 
-      get_object "${secrets_bucket_name}" "${type}/consul/consul-agent-ca.pem" "${ca_file}" "${user}"
-      get_object "${secrets_bucket_name}" "${type}/consul/${datacenter}-${type}-consul-0.pem" "${cert_file_path}" "${user}"
-      get_object "${secrets_bucket_name}" "${type}/consul/${datacenter}-${type}-consul-0-key.pem" "${key_file_path}" "${user}"
+      get_object "${secrets_bucket_name}" \
+        "${type}/consul/consul-agent-ca.pem" \
+        "${consul_ca_file_path}" \
+        "${user}"
+
+      # if [[ "$server" == "true" ]]
+      # then
+      get_object "${secrets_bucket_name}" \
+        "${type}/consul/${region}-${type}-consul-0.pem" \
+        "${consul_cert_file_path}" \
+        "${user}"
+
+      get_object "${secrets_bucket_name}" \
+        "${type}/consul/${region}-${type}-consul-0-key.pem" \
+        "${consul_key_file_path}" \
+        "${user}"
+      # fi
     fi
 
     acl_tokens_agent="$(get_object_value "${secrets_bucket_name}" "${type}/consul/acl-token-agent.txt")"
@@ -764,14 +928,15 @@ function run {
       "$user" \
       "$cluster_tag_key" \
       "$cluster_tag_value" \
-      "$datacenter" \
+      "$region" \
       "$enable_gossip_encryption" \
       "$gossip_encryption_key" \
-      "$enable_rpc_encryption" \
+      "$enable_tls_encryption" \
       "$verify_server_hostname" \
-      "$ca_file" \
-      "$cert_file_path" \
-      "$key_file_path" \
+      "$verify_incoming_https" \
+      "$consul_ca_file_path" \
+      "$consul_cert_file_path" \
+      "$consul_key_file_path" \
       "$cleanup_dead_servers" \
       "$last_contact_threshold" \
       "$max_trailing_logs" \
@@ -781,10 +946,25 @@ function run {
       "$upgrade_version_tag" \
       "$ui_config_enabled" \
       "$acl_tokens_master" \
-      "$acl_tokens_agent"
+      "$acl_tokens_agent" \
+      "$ipv6" \
+      "$interface"
   fi
 
-  generate_systemd_config "$server" "$config_dir" "$data_dir" "$systemd_stdout" "$systemd_stderr" "$bin_dir" "$user" "$secrets_bucket_name" "${environment[@]}"
+  generate_systemd_config "$server" \
+    "$config_dir" \
+    "$data_dir" \
+    "$systemd_stdout" \
+    "$systemd_stderr" \
+    "$bin_dir" \
+    "$user" \
+    "$secrets_bucket_name" \
+    "${environment[@]}"
+
+  generate_ferm_config "$server" \
+    "$ipv6" \
+    "$interface"
+
   start_consul "$server"
 }
 

@@ -20,12 +20,13 @@
     name: consul
     group: consul
     system: true
+    create_home: no
 
 - name: copy temporary install-consul script
   ansible.builtin.copy:
     src: install-consul
     dest: /tmp/install-consul
-    mode: "0750"
+    mode: 0750
   changed_when: false
 
 - name: run install-consul script
@@ -44,40 +45,57 @@
   ansible.builtin.copy:
     src: run-consul
     dest: /opt/consul/bin/run-consul
-    mode: '0750'
+    mode: 0750
     owner: consul
     group: consul
+  tags:
+  - run-consul
 
 - name: chcon consul binary
   ansible.builtin.file:
     path: /opt/consul/bin/consul
     owner: consul
     group: consul
-    mode: '0750'
+    mode: 0755
     setype: bin_t
     seuser: system_u
 
-- name: create the consul ferm conf files
-  template: src=templates/1010-consul.conf.j2 dest=/etc/ferm/ferm.d/1010-consul.conf owner=root group=root mode=0600
-
 - name: consul kresd.conf.d files
   template:
-    src: "{{ item }}"
-    dest: /etc/knot-resolver/kresd.conf.d/{{ item | basename | regex_replace('.j2$', '') }}
+    src: kresd-policy-consul.conf.j2
+    dest: /etc/knot-resolver/kresd.conf.d/810-policy-consul.conf
     owner: root
     group: knot-resolver
     mode: 0640
-  loop:
-    - "810-policy-consul.conf.j2"
 
 - name: create directory for systemd drop-ins
   file:
     path: /etc/systemd/system/consul.service.d
+    owner: root
+    group: root
     state: directory
     mode: 0755
 
 - name: create consul service
-  template: src=templates/consul.service.j2 dest=/etc/systemd/system/consul.service owner=root group=root mode=0644
+  template: src=templates/consul.service.j2 dest=/usr/lib/systemd/system/consul.service owner=root group=root mode=0644
+  notify:
+    - consul daemon-reload
+
+- name: copy consul-online script
+  ansible.builtin.copy:
+    src: consul-online
+    dest: /opt/consul/bin/consul-online
+    mode: 0750
+    owner: consul
+    group: consul
+
+- name: create consul-online service
+  template: src=templates/consul-online.service.j2 dest=/usr/lib/systemd/system/consul-online.service owner=root group=root mode=0644
+  notify:
+    - consul daemon-reload
+
+- name: create consul-online target
+  template: src=templates/consul-online.target.j2 dest=/usr/lib/systemd/system/consul-online.target owner=root group=root mode=0644
   notify:
     - consul daemon-reload
 
@@ -88,4 +106,4 @@
   when: consul_health_check | bool is true
 
 - include_tasks: storage-setup.yml
-  when: (storage_setup_volume_group_name is defined) and (storage_setup_physical_device is defined) and (storage_setup_physical_device | length > 0) and (consul_volume|bool)
+  when: (storage_setup_physical_device is defined) and (storage_setup_physical_device | length > 0) and (consul_volume|bool)

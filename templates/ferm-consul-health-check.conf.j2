@@ -1,0 +1,7 @@
+{% if consul_health_check %}
+domain (ip6 ip) table filter {
+  chain INPUT {
+    saddr @ipfilter($CONSUL_CIDR) proto tcp dport {{ consul_health_check_port }} ACCEPT;
+  }
+}
+{% endif %}

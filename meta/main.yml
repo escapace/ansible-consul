@@ -18,7 +18,9 @@ galaxy_info:
   - consul
 
 dependencies:
-  - { role: escapace.ferm }
+  - { role: escapace.retry }
   - { role: escapace.aws_cli }
+  - { role: escapace.aws_environment }
+  - { role: escapace.gomplate }
+  - { role: escapace.ferm }
   - { role: escapace.kresd }
-  - { role: escapace.storage_setup }

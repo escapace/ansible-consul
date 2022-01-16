@@ -1,18 +1,14 @@
 [Unit]
 Description="Consul Bootstrap"
-Requires=network-online.target
-After=network-online.target
 ConditionFileNotEmpty=/opt/consul/config/default.json
-Requires=consul.service
 After=consul.service
-Requires=consul-online.target
-After=consul-online.target
+Requires=consul.service
+After=consul-online.service
+Requires=consul-online.service
+Before=consul-online.target
 
 [Service]
 Type=oneshot
 User=consul
 Group=consul
 ExecStart=/opt/consul/bin/consul-bootstrap
-
-[Install]
-WantedBy=multi-user.target

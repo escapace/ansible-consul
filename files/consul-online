@@ -1,13 +1,38 @@
 #!/usr/bin/env bash
 
 set -e
+set -u
 set -o pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly CONSUL_CONFIG_DIR="$(cd "$SCRIPT_DIR/../config" && pwd)"
-readonly CONSUL_HTTP_TOKEN="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.master')"
 readonly CONSUL_HTTP_ADDR="http://127.0.0.1:8500"
 readonly CONSUL_MIN_PEERS=2
+
+CONSUL_HTTP_TOKEN=""
+
+function consul_http_token() {
+  local master
+  local agent
+
+  master="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.master')"
+
+  if [[ "${master}" == "null" ]]
+  then
+    agent="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.agent')"
+
+    if [[ "${agent}" == "null" ]]
+    then
+      echo "Unable to get CONSUL_HTTP_TOKEN."
+
+      return 1
+    else
+      CONSUL_HTTP_TOKEN="${agent}"
+    fi
+  else
+    CONSUL_HTTP_TOKEN="${master}"
+  fi
+}
 
 function consul_check_has_leader() {
   local consul_http_addr="${CONSUL_HTTP_ADDR}"
@@ -15,23 +40,25 @@ function consul_check_has_leader() {
 
   consul_leader_http_code=$(curl --silent --header "Authorization: Bearer ${CONSUL_HTTP_TOKEN}" --output /dev/null --write-out "%{http_code}" "${consul_http_addr}/v1/operator/raft/configuration") || consul_leader_http_code=""
 
-  while [ "x${consul_leader_http_code}" != "x200" ] ; do
-    echo "Waiting for Consul to get a leader..."
-    sleep 5
-    consul_leader_http_code=$(curl --silent --header "Authorization: Bearer ${CONSUL_HTTP_TOKEN}" --output /dev/null --write-out "%{http_code}" "${consul_http_addr}/v1/operator/raft/configuration") || consul_leader_http_code=""
-  done
+  if [[ "${consul_leader_http_code}" != "200" ]]
+  then
+    return 1
+  fi
 }
 
 function consul_check_peers() {
   local consul_http_addr="${CONSUL_HTTP_ADDR}"
 
-  until [[ "$(curl -s -k --header "Authorization: Bearer ${CONSUL_HTTP_TOKEN}" "${consul_http_addr}/v1/status/peers" | jq -r '.|length' 2>/dev/null)" -ge "${CONSUL_MIN_PEERS}" ]]; do
-    echo "Waiting for Consul to get a leader..."
-    sleep 2
-  done
+  if [[ "$(curl -s -k --header "Authorization: Bearer ${CONSUL_HTTP_TOKEN}" "${consul_http_addr}/v1/status/peers" | jq -r '.|length' 2>/dev/null)" -ge "${CONSUL_MIN_PEERS}" ]]
+  then
+    true
+  else
+    return 1
+  fi
 }
 
 function consul_online() {
+  consul_http_token
   consul_check_has_leader
   consul_check_peers
 }
