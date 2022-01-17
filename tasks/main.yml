@@ -11,5 +11,4 @@
 - include_tasks: consul.yml
   when: ansible_os_family == "RedHat"
   tags:
-  - run-consul
-
+    - run-consul

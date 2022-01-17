@@ -5,9 +5,9 @@
     name: "{{ packages }}"
   vars:
     packages:
-     - curl
-     - unzip
-     - jq
+      - curl
+      - unzip
+      - jq
 
 - name: consul group
   ansible.builtin.group:
@@ -20,7 +20,7 @@
     name: consul
     group: consul
     system: true
-    create_home: no
+    create_home: false
 
 - name: copy temporary install-consul script
   ansible.builtin.copy:
@@ -49,7 +49,7 @@
     owner: consul
     group: consul
   tags:
-  - run-consul
+    - run-consul
 
 - name: chcon consul binary
   ansible.builtin.file:
