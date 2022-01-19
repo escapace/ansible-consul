@@ -3,6 +3,7 @@
 consul_health_check_architecture:
   amd64: amd64
   aarch64: arm64
+  x86_64: amd64
 
 consul_health_check_url: https://github.com/kadaan/consulate/releases/download/v{{ consul_health_check_version }}/consulate_linux_{{ consul_health_check_architecture[ansible_architecture] }}.tar.gz
 consul_volume_device: "/dev/{{ storage_setup_volume_group_name }}/{{ consul_volume_name }}"
