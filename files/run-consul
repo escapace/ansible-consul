@@ -185,11 +185,13 @@ function get_object {
   local -r target="$3"
   local -r user="$4"
 
-  log_info "Downloading ${source}"
+  local -r key="${EC2_INSTANCE_REGION}/${source}"
+
+  log_info "Downloading ${key}"
 
   aws s3api get-object \
     --bucket "${secrets_bucket_name}" \
-    --key "${source}" \
+    --key "${key}" \
     "${target}" > /dev/null || exit 1
 
   chown "${user}:${user}" "${target}"
@@ -199,10 +201,12 @@ function get_object_value {
   local -r secrets_bucket_name="$1"
   local -r source="$2"
 
-  log_info "Downloading ${source}"
+  local -r key="${EC2_INSTANCE_REGION}/${source}"
+
+  log_info "Downloading ${key}"
 
   aws s3 cp --quiet \
-    "s3://${secrets_bucket_name}/${source}" /dev/stdout || exit 1
+    "s3://${secrets_bucket_name}/${key}" /dev/stdout || exit 1
 }
 
 function assert_is_installed {
@@ -366,6 +370,7 @@ EOF
     acl_configuration=$(cat <<EOF
 "acl" : {
   "enabled" : true,
+  "enable_key_list_policy": true,
   "enable_token_persistence": true,
   "default_policy" : "deny",
   "down_policy" : "extend-cache",
@@ -382,6 +387,7 @@ EOF
     acl_configuration=$(cat <<EOF
 "acl" : {
   "enabled" : true,
+  "enable_key_list_policy": true,
   "default_policy" : "deny",
   "down_policy" : "extend-cache",
   "tokens": {
@@ -467,7 +473,9 @@ EOF
   $autopilot_configuration
   $connect_configuration
   "telemetry": {
-    "disable_compat_1.9": true
+    "disable_compat_1.9": true,
+    "prometheus_retention_time": "24h",
+    "disable_hostname": true
   },
   "ui_config": {
     "enabled": $ui_config_enabled
@@ -883,7 +891,7 @@ function run {
     assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
 
     if [[ "$enable_gossip_encryption" == "true" ]]; then
-      gossip_encryption_key="$(get_object_value "${secrets_bucket_name}" "${type}/consul/gossip-encryption-key.txt")"
+      gossip_encryption_key="$(get_object_value "${secrets_bucket_name}" "${type}/consul/consul-gossip-encryption-key")"
     fi
 
     if [[ "$enable_tls_encryption" == "true" ]]; then
@@ -893,34 +901,34 @@ function run {
       tls_path="$(cd "$SCRIPT_DIR/../tls" && pwd)"
       tls_ca_path="$(cd "$SCRIPT_DIR/../tls/ca" && pwd)"
 
-      consul_ca_file_path="${tls_ca_path}/consul-agent-ca.pem"
-      consul_cert_file_path="${tls_path}/${region}-${type}-consul-0.pem"
-      consul_key_file_path="${tls_path}/${region}-${type}-consul-0-key.pem"
+      consul_ca_file_path="${tls_ca_path}/consul-ca.pem"
+      consul_cert_file_path="${tls_path}/consul-${type}.pem"
+      consul_key_file_path="${tls_path}/consul-${type}-key.pem"
 
       get_object "${secrets_bucket_name}" \
-        "${type}/consul/consul-agent-ca.pem" \
+        "${type}/consul/consul-ca.pem" \
         "${consul_ca_file_path}" \
         "${user}"
 
       # if [[ "$server" == "true" ]]
       # then
       get_object "${secrets_bucket_name}" \
-        "${type}/consul/${region}-${type}-consul-0.pem" \
+        "${type}/consul/consul-${type}.pem" \
         "${consul_cert_file_path}" \
         "${user}"
 
       get_object "${secrets_bucket_name}" \
-        "${type}/consul/${region}-${type}-consul-0-key.pem" \
+        "${type}/consul/consul-${type}-key.pem" \
         "${consul_key_file_path}" \
         "${user}"
       # fi
     fi
 
-    acl_tokens_agent="$(get_object_value "${secrets_bucket_name}" "${type}/consul/acl-token-agent.txt")"
+    acl_tokens_agent="$(get_object_value "${secrets_bucket_name}" "${type}/consul/consul-acl-token-consul-agent")"
 
     if [[ "$server" == "true" ]]
     then
-      acl_tokens_master="$(get_object_value "${secrets_bucket_name}" "${type}/consul/acl-token-master.txt")"
+      acl_tokens_master="$(get_object_value "${secrets_bucket_name}" "${type}/consul/consul-acl-token-consul-master")"
     fi
 
     generate_consul_config "$server" \

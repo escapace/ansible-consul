@@ -8,6 +8,7 @@
       - curl
       - unzip
       - jq
+      - retry
 
 - name: consul group
   ansible.builtin.group:
@@ -101,6 +102,8 @@
 
 - include_tasks: consul-server.yml
   when: consul_server | bool is true
+  tags:
+    - consul-bootstrap
 
 - include_tasks: health-check.yml
   when: consul_health_check | bool is true

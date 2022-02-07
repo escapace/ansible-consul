@@ -29,6 +29,10 @@ CONSUL_BIN_DIR="$(cd "$SCRIPT_DIR/../bin" && pwd)"
 
 readonly CONSUL_HTTP_ADDR="http://127.0.0.1:8500"
 
+set -o allexport
+source "/etc/sysconfig/ec2-environment"
+set +o allexport
+
 function log {
   local -r level="$1"
   local -r message="$2"
@@ -55,20 +59,23 @@ fi
 
 function get_token() {
   local -r name="$1"
-  local source="server/consul/acl-token-${name}.txt"
+  local -r key="${EC2_INSTANCE_REGION}/server/consul/consul-acl-token-${name}"
 
-  log_info "Downloading ${source}"
+  log_info "Downloading ${key}"
 
   aws s3 cp --quiet \
-    "s3://${CONSUL_SECRETS_BUCKET_NAME}/${source}" /dev/stdout || exit 1
+    "s3://${CONSUL_SECRETS_BUCKET_NAME}/${key}" /dev/stdout || exit 1
 }
 
 function get_policy() {
   local -r name="$1"
+  local -r key="${EC2_INSTANCE_REGION}/server/consul/consul-acl-policy-${name}.hcl"
 
-  log_info "Downloading server/consul/acl-policy-${name}.hcl"
+  log_info "Downloading ${key}"
 
-  aws s3api get-object --bucket "${CONSUL_SECRETS_BUCKET_NAME}" --key "server/consul/acl-policy-${name}.hcl" "${CONSUL_POLICY_DIR}/${name}.hcl" &> /dev/null || exit 1
+  aws s3api get-object --bucket "${CONSUL_SECRETS_BUCKET_NAME}" \
+    --key "${key}" \
+    "${CONSUL_POLICY_DIR}/${name}.hcl" &> /dev/null || exit 1
 }
 
 function consul_agent_self_leader() {
@@ -155,24 +162,29 @@ consul_token_anonymous_update() {
 }
 
 function main() {
+  local consul_telemetry_token
   local nomad_client_token
   local nomad_server_token
 
   if consul_is_leader
   then
+    consul_telemetry_token="$(get_token "consul-telemetry")"
     nomad_client_token="$(get_token "nomad-client")"
     nomad_server_token="$(get_token "nomad-server")"
 
-    consul_policy_create "agent" "Agent Token Policy"
-    consul_policy_create "dns" "DNS Policy"
-    consul_policy_create "list-nodes" "List Nodes"
+    consul_policy_create "consul-agent" "Consul Agent Token Policy"
+    consul_policy_create "consul-dns" "Consul DNS Policy"
+    consul_policy_create "consul-ui" "Consul UI Policy"
+    consul_policy_create "consul-telemetry" "Consul Telemetry Policy"
+
     consul_policy_create "nomad-client" "Nomad Client Policy"
     consul_policy_create "nomad-server" "Nomad Server Policy"
 
     sleep 3
 
-    consul_token_anonymous_update "dns" "list-nodes"
-    consul_token_update "Agent Token" "${CONSUL_AGENT_TOKEN}" "agent"
+    consul_token_anonymous_update "consul-dns" "consul-ui"
+    consul_token_update "Consul Agent Token" "${CONSUL_AGENT_TOKEN}" "consul-agent"
+    consul_token_update "Consul Telemetry Token" "${consul_telemetry_token}" "consul-telemetry"
     consul_token_update "Nomad Client Token" "${nomad_client_token}" "nomad-client"
     consul_token_update "Nomad Server Token" "${nomad_server_token}" "nomad-server"
   fi

@@ -7,6 +7,8 @@
     mode: 0750
     owner: consul
     group: consul
+  tags:
+    - consul-bootstrap
 
 - name: create consul-bootstrap service
   template: src=templates/consul-bootstrap.service.j2 dest=/usr/lib/systemd/system/consul-bootstrap.service owner=root group=root mode=0644
