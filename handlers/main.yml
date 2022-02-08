@@ -4,3 +4,4 @@
 - name: consul daemon-reload
   systemd:
     daemon_reload: true
+  when: not consul_role_debug|bool
