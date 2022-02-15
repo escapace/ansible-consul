@@ -707,6 +707,8 @@ function run {
 
   if [[ ! -f "/etc/sysconfig/ec2-environment" ]]
   then
+    print_usage
+
     log_error "/etc/sysconfig/ec2-environment: No such file"
 
     exit 1
