@@ -1,7 +1,7 @@
 ---
 
 - name: install dependencies
-  dnf:
+  ansible.builtin.dnf:
     name: "{{ packages }}"
     state: present
     allowerasing: true
@@ -64,7 +64,7 @@
     seuser: system_u
 
 - name: consul kresd.conf.d files
-  template:
+  ansible.builtin.template:
     src: kresd-policy-consul.conf.j2
     dest: /etc/knot-resolver/kresd.conf.d/810-policy-consul.conf
     owner: root
@@ -72,7 +72,7 @@
     mode: 0640
 
 - name: create directory for systemd drop-ins
-  file:
+  ansible.builtin.file:
     path: /etc/systemd/system/consul.service.d
     owner: root
     group: root
@@ -80,7 +80,7 @@
     mode: 0755
 
 - name: create consul service
-  template: src=templates/consul.service.j2 dest=/usr/lib/systemd/system/consul.service owner=root group=root mode=0644
+  ansible.builtin.template: src=templates/consul.service.j2 dest=/usr/lib/systemd/system/consul.service owner=root group=root mode=0644
   notify:
     - consul daemon-reload
 
@@ -93,12 +93,12 @@
     group: consul
 
 - name: create consul-online service
-  template: src=templates/consul-online.service.j2 dest=/usr/lib/systemd/system/consul-online.service owner=root group=root mode=0644
+  ansible.builtin.template: src=templates/consul-online.service.j2 dest=/usr/lib/systemd/system/consul-online.service owner=root group=root mode=0644
   notify:
     - consul daemon-reload
 
 - name: create consul-online target
-  template: src=templates/consul-online.target.j2 dest=/usr/lib/systemd/system/consul-online.target owner=root group=root mode=0644
+  ansible.builtin.template: src=templates/consul-online.target.j2 dest=/usr/lib/systemd/system/consul-online.target owner=root group=root mode=0644
   notify:
     - consul daemon-reload
 
