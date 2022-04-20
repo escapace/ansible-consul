@@ -1,10 +1,10 @@
 ---
 
 - name: create the consul ferm conf files
-  template: src=templates/ferm-consul-health-check.conf.j2 dest=/etc/ferm/ferm.d/1010-consul-health-check.conf owner=root group=root mode=0600
+  ansible.builtin.template: src=templates/ferm-consul-health-check.conf.j2 dest=/etc/ferm/ferm.d/1010-consul-health-check.conf owner=root group=root mode=0600
 
 - name: create temporary directory
-  file:
+  ansible.builtin.file:
     path: /tmp/health-check
     owner: "root"
     group: "root"
@@ -39,9 +39,9 @@
   changed_when: false
 
 - name: create consul health check service
-  template: src=templates/consul-health-check.service.j2 dest=/etc/systemd/system/consul-health-check.service owner=root group=root mode=0644
+  ansible.builtin.template: src=templates/consul-health-check.service.j2 dest=/etc/systemd/system/consul-health-check.service owner=root group=root mode=0644
   notify:
     - consul daemon-reload
 
 - name: enable consul health check on boot
-  service: name=consul-health-check enabled=yes
+  ansible.builtin.service: name=consul-health-check enabled=yes

@@ -11,12 +11,12 @@
     - consul-bootstrap
 
 - name: create consul-bootstrap service
-  template: src=templates/consul-bootstrap.service.j2 dest=/usr/lib/systemd/system/consul-bootstrap.service owner=root group=root mode=0644
+  ansible.builtin.template: src=templates/consul-bootstrap.service.j2 dest=/usr/lib/systemd/system/consul-bootstrap.service owner=root group=root mode=0644
   notify:
     - consul daemon-reload
 
 - name: create directory for systemd drop-ins
-  file:
+  ansible.builtin.file:
     path: /etc/systemd/system/consul-bootstrap.service.d
     state: directory
     mode: 0755
