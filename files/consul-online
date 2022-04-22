@@ -12,12 +12,12 @@ readonly CONSUL_MIN_PEERS=2
 CONSUL_HTTP_TOKEN=""
 
 function consul_http_token() {
-  local master
+  local initial_management
   local agent
 
-  master="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.master')"
+  initial_management="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.initial_management')"
 
-  if [[ "${master}" == "null" ]]
+  if [[ "${initial_management}" == "null" ]]
   then
     agent="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.agent')"
 
@@ -30,7 +30,7 @@ function consul_http_token() {
       CONSUL_HTTP_TOKEN="${agent}"
     fi
   else
-    CONSUL_HTTP_TOKEN="${master}"
+    CONSUL_HTTP_TOKEN="${initial_management}"
   fi
 }
 

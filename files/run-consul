@@ -347,7 +347,7 @@ function generate_consul_config {
   local -r disable_upgrade_migration="${19}"
   local -r upgrade_version_tag=${20}
   local -r ui_config_enabled=${21}
-  local -r acl_tokens_master="${22}"
+  local -r acl_tokens_initial_management="${22}"
   local -r acl_tokens_agent="${23}"
   local -r ipv6="${24}"
   local -r interface="${25}"
@@ -406,7 +406,7 @@ EOF
   "default_policy" : "deny",
   "down_policy" : "extend-cache",
   "tokens": {
-    "master": "${acl_tokens_master}",
+    "initial_management": "${acl_tokens_initial_management}",
     "agent": "${acl_tokens_agent}"
   }
 },
@@ -929,7 +929,7 @@ function run {
   local consul_cert_file_path=""
   local consul_key_file_path=""
 
-  local acl_tokens_master=""
+  local acl_tokens_initial_management=""
   local acl_tokens_agent=""
 
   local gossip_encryption_key=""
@@ -977,7 +977,7 @@ function run {
 
     if [[ "$server" == "true" ]]
     then
-      acl_tokens_master="$(get_object_value "${secrets_bucket_name}" "${type}/consul/consul-acl-token-consul-master")"
+      acl_tokens_initial_management="$(get_object_value "${secrets_bucket_name}" "${type}/consul/consul-acl-token-initial-management")"
     fi
 
     generate_consul_config "$server" \
@@ -1001,7 +1001,7 @@ function run {
       "$disable_upgrade_migration" \
       "$upgrade_version_tag" \
       "$ui_config_enabled" \
-      "$acl_tokens_master" \
+      "$acl_tokens_initial_management" \
       "$acl_tokens_agent" \
       "$ipv6" \
       "$interface"

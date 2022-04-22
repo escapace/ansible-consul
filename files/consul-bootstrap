@@ -15,8 +15,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONSUL_CONFIG_DIR=
 CONSUL_CONFIG_DIR="$(cd "$SCRIPT_DIR/../config" && pwd)"
 
-CONSUL_MASTER_TOKEN=
-CONSUL_MASTER_TOKEN="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.master')"
+CONSUL_INITIAL_MANAGEMENT_TOKEN=
+CONSUL_INITIAL_MANAGEMENT_TOKEN="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.initial_management')"
 
 CONSUL_AGENT_TOKEN=
 CONSUL_AGENT_TOKEN="$(cat "${CONSUL_CONFIG_DIR}/default.json" | jq -r '.acl.tokens.agent')"
@@ -80,7 +80,7 @@ function get_policy() {
 
 function consul_agent_self_leader() {
   local consul_http_addr="${CONSUL_HTTP_ADDR}"
-  local consul_http_token="${CONSUL_MASTER_TOKEN}"
+  local consul_http_token="${CONSUL_INITIAL_MANAGEMENT_TOKEN}"
 
   curl -s -k \
     --header "Authorization: Bearer ${consul_http_token}" \
@@ -100,7 +100,7 @@ function consul_policy_create() {
   local -r name="$1"
   local -r description="$2"
   local -r policy="${CONSUL_POLICY_DIR}/${name}.hcl"
-  local consul_http_token="${CONSUL_MASTER_TOKEN}"
+  local consul_http_token="${CONSUL_INITIAL_MANAGEMENT_TOKEN}"
 
   if CONSUL_HTTP_TOKEN="${consul_http_token}" "${CONSUL_BIN_DIR}/consul" acl policy read -name "${name}" &> /dev/null
   then
@@ -129,7 +129,7 @@ function consul_token_update() {
   done
 
   local accessor_id
-  local consul_http_token="${CONSUL_MASTER_TOKEN}"
+  local consul_http_token="${CONSUL_INITIAL_MANAGEMENT_TOKEN}"
 
   accessor_id="$(CONSUL_HTTP_TOKEN="${consul_http_token}" consul acl token list -format json | jq -r ".[] | select(.SecretID == \"${secret}\") | .AccessorID")"
 
@@ -143,7 +143,7 @@ function consul_token_update() {
 }
 
 consul_token_anonymous_update() {
-  local consul_http_token="${CONSUL_MASTER_TOKEN}"
+  local consul_http_token="${CONSUL_INITIAL_MANAGEMENT_TOKEN}"
 
   local -r policies=("$@")
 
