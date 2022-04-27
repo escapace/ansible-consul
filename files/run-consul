@@ -977,7 +977,7 @@ function run {
 
     if [[ "$server" == "true" ]]
     then
-      acl_tokens_initial_management="$(get_object_value "${secrets_bucket_name}" "${type}/consul/consul-acl-token-initial-management")"
+      acl_tokens_initial_management="$(get_object_value "${secrets_bucket_name}" "${type}/consul/consul-acl-token-consul-initial-management")"
     fi
 
     generate_consul_config "$server" \
