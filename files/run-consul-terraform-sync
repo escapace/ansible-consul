@@ -1,0 +1,491 @@
+#!/bin/bash
+# This script is used to configure and run Nomad on an AWS server.
+
+set -e
+set -u
+set -o pipefail
+
+umask 027
+
+SCRIPT_DIR=
+SCRIPT_NAME=
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="$(basename "$0")"
+
+NAME="consul-terraform-sync"
+
+function wrap() {
+  local strings="${1}"
+
+  local length
+  local cols
+  local width
+
+  length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
+  cols="$(tput cols)"
+
+  if [[ $(((cols - 4) / length)) -ge 2 ]]; then
+    if [[ $((cols - length - 4)) -ge 80 ]]; then
+      width=80
+    else
+      width=$((cols - length - 4))
+    fi
+
+    echo -e "${strings}" \
+      | fold -s -w "${width}" \
+      | sed -e "/--/! s|^| \||g" \
+      | column -t -s '|' \
+      | sed 's/^/  /'
+  else
+    local lines
+    local line
+    readarray -t lines <<< "${strings}"
+    local option
+    local description
+
+    if [[ "${cols}" -ge 80 ]]; then
+      width="78"
+    else
+      width=$((cols - 2))
+    fi
+
+    for line in "${lines[@]}"; do
+      option="${line%%|*}"
+      description=${line#*|}
+
+      echo "${option}"
+      echo
+      echo "${description}" | fold -s -w "${width}" | sed 's/^/  /'
+      echo
+    done
+  fi
+}
+
+function print_usage() {
+  echo
+  echo "Usage: $SCRIPT_NAME [OPTIONS]"
+  echo
+  echo "This script is used to configure and run Consul Terraform Sync on an AWS server."
+  echo
+  echo "Options:"
+  echo
+  wrap "$(
+    echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
+    echo -e "--alb-listener-arn|ARN of the Application Load Balancer Listener."
+    echo -e "--terraform-version|Terraform version."
+    echo -e "--alb-module-version|escapace/alb-nia/aws Terraform module version."
+    echo -e "--log-level|The log level to use for CTS logging. The available log levels are \"TRACE\", \"DEBUG\", \"INFO\", \"WARN\", and \"ERR\"."
+  )"
+  echo
+  echo "Example:"
+  echo
+  echo "  $SCRIPT_NAME --secrets-bucket-name abcd --alb-listener-arn arn:aws:elasticloadbalancing:"
+  echo
+
+  # echo -e "--enable-tls-encryption|Enable encryption of traffic between nodes."
+}
+
+function log() {
+  local -r level="$1"
+  local -r message="$2"
+  local -r timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+  echo >&2 -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
+}
+
+function log_info() {
+  local -r message="$1"
+  log "INFO" "$message"
+}
+
+function log_warn() {
+  local -r message="$1"
+  log "WARN" "$message"
+}
+
+function log_error() {
+  local -r message="$1"
+  log "ERROR" "$message"
+}
+
+function assert_not_empty() {
+  local -r arg_name="$1"
+  local -r arg_value="$2"
+
+  if [[ -z "$arg_value" ]]; then
+    log_error "The value for '$arg_name' cannot be empty"
+    print_usage
+    exit 1
+  fi
+}
+
+function get_object() {
+  local -r secrets_bucket_name="$1"
+  local -r source="$2"
+  local -r target="$3"
+  local -r user="$4"
+
+  local -r key="${EC2_INSTANCE_REGION}/${source}"
+
+  log_info "Downloading ${key}"
+
+  aws s3api get-object \
+    --bucket "${secrets_bucket_name}" \
+    --key "${key}" \
+    "${target}" > /dev/null || exit 1
+
+  chown "${user}:${user}" "${target}"
+}
+
+function get_object_value() {
+  local -r secrets_bucket_name="$1"
+  local -r source="$2"
+
+  local -r key="${EC2_INSTANCE_REGION}/${source}"
+
+  log_info "Downloading ${key}"
+
+  aws s3 cp --quiet \
+    "s3://${secrets_bucket_name}/${key}" /dev/stdout || exit 1
+}
+
+function assert_is_installed() {
+  local -r name="$1"
+
+  if [[ ! $(command -v "${name}") ]]; then
+    log_error "The binary '$name' is required by this script but is not installed or in the system's PATH."
+    exit 1
+  fi
+}
+
+function start_consul_terraform_sync() {
+  log_info "Reloading systemd config and starting Consul Terraform Sync"
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable ${NAME}.service
+  sudo systemctl restart ${NAME}.service
+}
+
+function run() {
+  if [[ ! -f "/etc/sysconfig/ec2-environment" ]]; then
+    print_usage
+
+    log_error "/etc/sysconfig/ec2-environment: No such file"
+
+    exit 1
+  fi
+
+  set -o allexport
+  source "/etc/sysconfig/ec2-environment"
+  set +o allexport
+
+  local enable_tls_encryption="true"
+  local secrets_bucket_name=""
+  local terraform_version="1.1.9"
+  local alb_module_version="0.1.0"
+  local alb_listener_arn=""
+  local log_level="ERR"
+
+  while [[ $# -gt 0 ]]; do
+    local key="$1"
+
+    case "$key" in
+      # --enable-tls-encryption)
+      #   enable_tls_encryption="true"
+      #   ;;
+      --secrets-bucket-name)
+        assert_not_empty "$key" "$2"
+        secrets_bucket_name="$2"
+        shift
+        ;;
+      --alb-listener-arn)
+        assert_not_empty "$key" "$2"
+        alb_listener_arn="$2"
+        shift
+        ;;
+      --terraform-version)
+        assert_not_empty "$key" "$2"
+        terraform_version="$2"
+        shift
+        ;;
+      --alb-module-version)
+        assert_not_empty "$key" "$2"
+        alb_module_version="$2"
+        shift
+        ;;
+      --log-level)
+        assert_not_empty "$key" "$2"
+        log_level="$2"
+        shift
+        ;;
+      --help)
+        print_usage
+        exit
+        ;;
+      *)
+        log_error "Unrecognized argument: $key"
+        print_usage
+        exit 1
+        ;;
+    esac
+
+    shift
+  done
+
+  assert_is_installed "systemctl"
+
+  local bin_dir
+  local config_dir
+  local variables_dir
+
+  bin_dir=$(cd "$SCRIPT_DIR/../bin" && pwd)
+  config_dir=$(cd "$SCRIPT_DIR/../config" && pwd)
+  variables_dir=$(cd "$SCRIPT_DIR/../variables" && pwd)
+
+  assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
+  assert_not_empty "--alb-listener-arn" "$alb_listener_arn"
+
+  local consul_ca_file_path=""
+  local consul_cert_file_path=""
+  local consul_key_file_path=""
+  local aws_access_key_id
+  local aws_secret_access_key
+  local consul_acl_token
+
+  consul_acl_token="$(get_object_value "${secrets_bucket_name}" "${NAME}/consul/consul-acl-token-${NAME}")"
+  aws_access_key_id="$(get_object_value "${secrets_bucket_name}" "${NAME}/aws-access-key-id-${NAME}")"
+  aws_secret_access_key="$(get_object_value "${secrets_bucket_name}" "${NAME}/aws-secret-access-key-${NAME}")"
+
+  local -r systemd_config_path="/usr/lib/systemd/system/${NAME}.service"
+  local -r environment_file_path="/etc/sysconfig/${NAME}-environment"
+  local -r default_variables_path="${variables_dir}/default.tfvars"
+  local -r alb_variables_path="${variables_dir}/alb.tfvars"
+
+  local -r default_config_path="${config_dir}/default.hcl"
+  local -r alb_config_path="${config_dir}/alb.hcl"
+
+  #
+  # TLS
+  #
+
+  if [[ "$enable_tls_encryption" == "true" ]]; then
+    local tls_path
+    local tls_ca_path
+
+    tls_path="$(cd "$SCRIPT_DIR/../tls" && pwd)"
+    tls_ca_path="$(cd "$SCRIPT_DIR/../tls/ca" && pwd)"
+
+    consul_ca_file_path="${tls_ca_path}/consul-ca.pem"
+    consul_cert_file_path="${tls_path}/${NAME}.pem"
+    consul_key_file_path="${tls_path}/${NAME}-key.pem"
+
+    get_object "${secrets_bucket_name}" \
+      "${NAME}/consul/consul-ca.pem" \
+      "${consul_ca_file_path}" \
+      "${NAME}"
+
+    # if [[ "$server" == "true" ]]
+    # then
+    get_object "${secrets_bucket_name}" \
+      "${NAME}/consul/consul-${NAME}.pem" \
+      "${consul_cert_file_path}" \
+      "${NAME}"
+
+    get_object "${secrets_bucket_name}" \
+      "${NAME}/consul/consul-${NAME}-key.pem" \
+      "${consul_key_file_path}" \
+      "${NAME}"
+  fi
+
+  #
+  # Environment
+  #
+
+  log_info "Writing ${environment_file_path}"
+
+  local -r environment=$(
+    cat << EOF
+AWS_REGION="${EC2_INSTANCE_REGION}"
+AWS_ACCESS_KEY_ID="${aws_access_key_id}"
+AWS_SECRET_ACCESS_KEY="${aws_secret_access_key}"
+CONSUL_HTTP_ADDR="localhost:8501"
+CONSUL_CACERT="${consul_ca_file_path}"
+CONSUL_CLIENT_CERT="${consul_cert_file_path}"
+CONSUL_CLIENT_KEY="${consul_key_file_path}"
+CONSUL_HTTP_TOKEN="${consul_acl_token}"
+CONSUL_HTTP_SSL="true"
+CONSUL_HTTP_SSL_VERIFY="true"
+
+EOF
+  )
+
+  echo -e "${environment}" > "${environment_file_path}"
+  chown root:root "${environment_file_path}"
+  chmod 640 "${environment_file_path}"
+  setfacl -m "u:${NAME}:r" "${environment_file_path}"
+
+  #
+  # Systemd
+  #
+
+  log_info "Writing $systemd_config_path"
+
+  local -r unit_config=$(
+    cat << EOF
+[Unit]
+Description="HashiCorp Consul Terraform Sync"
+Documentation=https://www.consul.io/docs/nia
+After=consul-online.target
+After=network-online.target
+Wants=consul-online.target
+Wants=network-online.target
+ConditionDirectoryNotEmpty=$config_dir
+
+EOF
+  )
+
+  local -r service_config=$(
+    cat << EOF
+[Service]
+User=${NAME}
+Group=${NAME}
+ExecStart=consul lock -n 1 -name consul-terraform-sync-lock -child-exit-code consul-terraform-sync-lock "$bin_dir/${NAME} -config-dir $config_dir"
+Restart=on-failure
+RestartSec=2
+TasksMax=infinity
+EnvironmentFile=$environment_file_path
+
+EOF
+  )
+
+  local -r install_config=$(
+    cat << EOF
+[Install]
+WantedBy=multi-user.target
+EOF
+  )
+
+  echo -e "$unit_config" > "$systemd_config_path"
+  echo -e "$service_config" >> "$systemd_config_path"
+  echo -e "$install_config" >> "$systemd_config_path"
+
+  chown root:root "${systemd_config_path}"
+  chmod 644 "${systemd_config_path}"
+
+  #
+  # Default Variables
+  #
+
+  log_info "Writing ${default_variables_path}"
+
+  local -r default_variables=$(
+    cat << EOF
+region="${EC2_INSTANCE_REGION}"
+EOF
+  )
+
+  echo -e "${default_variables}" > "${default_variables_path}"
+
+  chown ${NAME}:${NAME} "${default_variables_path}"
+  chmod 640 "${default_variables_path}"
+
+  #
+  # Default Configuration
+  #
+
+  log_info "Writing ${default_config_path}"
+
+  local -r default_config=$(
+    cat << EOF
+log_level   = "${log_level}"
+working_dir = "/opt/${NAME}/tasks"
+port        = 8558
+
+syslog {
+  enabled = false
+}
+
+consul {
+  address = "localhost:8501"
+
+  tls {
+    enabled = true
+    verify = "${enable_tls_encryption}"
+  }
+}
+
+buffer_period {
+  enabled = true
+  min     = "3s"
+  max     = "12s"
+}
+
+driver "terraform" {
+  version     = "${terraform_version}"
+  path        = "${bin_dir}"
+  log         = true
+  persist_log = false
+
+  backend "consul" {
+    gzip = true
+  }
+}
+EOF
+  )
+
+  echo -e "${default_config}" > "${default_config_path}"
+
+  chown ${NAME}:${NAME} "${default_config_path}"
+  chmod 640 "${default_config_path}"
+
+  #
+  # ALB Variables
+  #
+
+  log_info "Writing ${alb_variables_path}"
+
+  local -r alb_variables=$(
+    cat << EOF
+listener_arn="${alb_listener_arn}"
+EOF
+  )
+
+  echo -e "${alb_variables}" > "${alb_variables_path}"
+
+  chown ${NAME}:${NAME} "${alb_variables_path}"
+  chmod 640 "${alb_variables_path}"
+
+  #
+  # ALB Configuration
+  #
+
+  log_info "Writing ${alb_config_path}"
+
+  local -r alb_config=$(
+    cat << EOF
+task {
+  name        = "alb"
+  description = "Application Load Balancer"
+  module      = "escapace/alb-nia/aws"
+  version     = "${alb_module_version}"
+
+  variable_files = [
+    "${default_variables_path}",
+    "${alb_variables_path}"
+  ]
+
+  condition "services" {
+    regexp = ".*"
+  }
+}
+EOF
+  )
+
+  echo -e "${alb_config}" > "${alb_config_path}"
+
+  chown ${NAME}:${NAME} "${alb_config_path}"
+  chmod 640 "${alb_config_path}"
+
+  start_consul_terraform_sync
+}
+
+run "$@"

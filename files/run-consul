@@ -359,6 +359,8 @@ function generate_consul_config {
   local bind_addr
   local instance_id="${EC2_INSTANCE_ID}"
   local instance_region="${EC2_INSTANCE_REGION}"
+  local instance_availability_zone="${EC2_INSTANCE_AVAILABILITY_ZONE}"
+  local instance_type="${EC2_INSTANCE_TYPE}"
 
   advertise_addr="$(get_consul_address "${server}" "${ipv6}" "${interface}")"
   bind_addr="$(get_consul_address "${server}" "${ipv6}" "${interface}")"
@@ -497,6 +499,10 @@ EOF
   },
   "datacenter": "$instance_region",
   "node_name": "$instance_id",
+  "node_meta": {
+    "availability_zone": "$instance_availability_zone",
+    "instance_type": "$instance_type"
+  },
   $retry_join_json
   "server": $server,
   $gossip_encryption_configuration

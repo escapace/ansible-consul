@@ -13,3 +13,9 @@
   tags:
     - run-consul
     - consul-bootstrap
+
+- include_tasks: consul-terraform-sync.yml
+  when: consul_terraform_sync | bool
+  tags:
+    - consul-terraform-sync
+    - run-consul-terraform-sync
