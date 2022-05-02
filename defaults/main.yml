@@ -7,6 +7,10 @@ consul_volume_size: 45%VG
 consul_volume_name: consul
 consul_volume_fs_type: "xfs"
 consul_volume_mount: /opt/consul/data
+
+consul_terraform_sync: false
+consul_terraform_sync_version: 0.5.2
+
 consul_health_check: false
 consul_health_check_port: 8080
 consul_health_check_version: 0.0.8
