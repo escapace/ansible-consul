@@ -181,7 +181,7 @@ function run() {
   local enable_tls_encryption="true"
   local secrets_bucket_name=""
   local terraform_version="1.1.9"
-  local alb_module_version="0.1.0"
+  local alb_module_version="0.2.0"
   local alb_listener_arn=""
   local log_level="ERR"
 
@@ -380,6 +380,7 @@ EOF
   local -r default_variables=$(
     cat << EOF
 region="${EC2_INSTANCE_REGION}"
+vpc_id="${EC2_INSTANCE_ETH0_VPC_ID}"
 EOF
   )
 
