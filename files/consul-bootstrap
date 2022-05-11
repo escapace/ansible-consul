@@ -27,7 +27,7 @@ CONSUL_POLICY_DIR="$(cd "$SCRIPT_DIR/../policy" && pwd)"
 CONSUL_BIN_DIR=
 CONSUL_BIN_DIR="$(cd "$SCRIPT_DIR/../bin" && pwd)"
 
-readonly CONSUL_HTTP_ADDR="http://127.0.0.1:8500"
+readonly CONSUL_HTTP_ADDR="http://[::1]:8500"
 
 set -o allexport
 source "/etc/sysconfig/ec2-environment"
