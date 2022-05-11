@@ -464,12 +464,53 @@ EOF
     "verify_incoming": true,
     "verify_outgoing": true
   },
+  "grpc": {
+    "verify_incoming": false
+  },
   "https": {
     "verify_incoming": $verify_incoming_https
   },
   "internal_rpc": {
     "verify_server_hostname": $verify_server_hostname
   }
+},
+EOF
+)
+  fi
+
+  local addresses
+  local ports
+
+  if [[ "$server" == "true" ]]
+  then
+    addresses=$(cat <<EOF
+"addresses": {
+  "http": "127.0.0.1 ::1",
+  "https": "127.0.0.1 ::1 ${bind_addr}"
+},
+EOF
+)
+
+    ports=$(cat <<EOF
+"ports": {
+  "https": 8501
+},
+EOF
+)
+  else
+    addresses=$(cat <<EOF
+"addresses": {
+  "http": "127.0.0.1 ::1",
+  "https": "127.0.0.1 ::1 ${bind_addr}",
+  "grpc": "127.0.0.1 ::1"
+},
+EOF
+)
+
+    ports=$(cat <<EOF
+"ports": {
+  "https": 8501,
+  "grpc": 8502
 },
 EOF
 )
@@ -487,6 +528,21 @@ EOF
 )
   fi
 
+  local ui_config=""
+  if [[ "$server" == "true" && "$ui_config_enabled" == true ]]
+  then
+    ui_config=$(cat <<EOF
+"ui_config": {
+  "enabled": true,
+  "metrics_provider": "prometheus",
+  "metrics_proxy": {
+    "base_url": "http://[127.0.0.1]:9201"
+  }
+},
+EOF
+)
+  fi
+
   log_info "Creating default Consul configuration"
   local default_config_json
   default_config_json=$(cat <<EOF
@@ -496,18 +552,12 @@ EOF
   $bootstrap_expect
   $acl_configuration
   "client_addr": "127.0.0.1 ::1",
-  "addresses": {
-    "http": "127.0.0.1 ::1",
-    "https": "127.0.0.1 ::1 ${bind_addr}",
-    "grpc": "127.0.0.1 ::1 ${bind_addr}"
-  },
-  "ports": {
-    "https": 8501,
-    "grpc": 8502
-  },
+  $addresses
+  $ports
   "datacenter": "$instance_region",
   "node_name": "$instance_id",
   "node_meta": {
+    "instance_id": "${instance_id}",
     "availability_zone": "$instance_availability_zone",
     "instance_type": "$instance_type"
   },
@@ -517,13 +567,11 @@ EOF
   $tls_configuration
   $autopilot_configuration
   $connect_configuration
+  $ui_config
   "telemetry": {
     "disable_compat_1.9": true,
     "prometheus_retention_time": "24h",
     "disable_hostname": true
-  },
-  "ui_config": {
-    "enabled": $ui_config_enabled
   }
 }
 EOF
@@ -658,7 +706,7 @@ domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").
   proto tcp dport 8501 ACCEPT;
 
   # grpc: the grpc api (disabled)
-  proto tcp dport 8502 ACCEPT;
+  # proto tcp dport 8502 ACCEPT;
 }
 
 {{ if bool ((ds "data").server) }}
@@ -671,8 +719,11 @@ domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").
 }
 {{ else }}
 domain ({{ (ds "data").domain }}) table filter chain INPUT daddr {{ (ds "data").address }} {
-  # sidecar proxy: sidecar service registrations
+  # sidecar service registrations
   proto tcp dport 21000:21255 ACCEPT;
+
+  # exposed check listeners
+  proto tcp dport 21500:21755 ACCEPT;
 }
 {{ end }}
 EOF
