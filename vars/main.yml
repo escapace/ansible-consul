@@ -16,3 +16,7 @@ consul_volume_device: "/dev/{{ storage_setup_volume_group_name }}/{{ consul_volu
 consul_terraform_sync_archive: "consul-terraform-sync_{{ consul_terraform_sync_version }}_linux_{{ consul_architecture }}.zip"
 consul_terraform_sync_archive_url: "https://releases.hashicorp.com/consul-terraform-sync/{{ consul_terraform_sync_version }}/{{ consul_terraform_sync_archive }}"
 consul_terraform_sync_archive_checksum_url: "https://releases.hashicorp.com/consul-terraform-sync/{{ consul_terraform_sync_version }}/consul-terraform-sync_{{ consul_terraform_sync_version }}_SHA256SUMS"
+
+consul_template_archive: "consul-template_{{ consul_template_version }}_linux_{{ consul_architecture }}.zip"
+consul_template_archive_url: "https://releases.hashicorp.com/consul-template/{{ consul_template_version }}/{{ consul_template_archive }}"
+consul_template_archive_checksum_url: "https://releases.hashicorp.com/consul-template/{{ consul_template_version }}/consul-template_{{ consul_template_version }}_SHA256SUMS"
