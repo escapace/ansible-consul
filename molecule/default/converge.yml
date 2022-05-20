@@ -5,5 +5,7 @@
     kresd_role_debug: true
     ferm_role_debug: true
     consul_role_debug: true
+    consul_terraform_sync: true
+    consul_esm: true
   roles:
     - role: escapace.consul

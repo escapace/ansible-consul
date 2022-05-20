@@ -70,11 +70,11 @@ function print_usage() {
   echo "Options:"
   echo
   wrap "$(
-    echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
-    echo -e "--alb-listener-arn|ARN of the Application Load Balancer Listener."
-    echo -e "--terraform-version|Terraform version."
-    echo -e "--alb-module-version|escapace/alb-nia/aws Terraform module version."
     echo -e "--log-level|The log level to use for CTS logging. The available log levels are \"TRACE\", \"DEBUG\", \"INFO\", \"WARN\", and \"ERR\"."
+    echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
+    echo -e "--terraform-version|Terraform version."
+    echo -e "--module-alb-version|escapace/alb-nia/aws Terraform module version."
+    echo -e "--module-alb-listener-arn|ARN of the Application Load Balancer Listener."
   )"
   echo
   echo "Example:"
@@ -165,6 +165,66 @@ function start_consul_terraform_sync() {
   sudo systemctl restart ${NAME}.service
 }
 
+function module_alb_configuration() {
+  local -r config_dir="${1}"
+  local -r default_variables_path="${2}"
+  local -r module_version="${3}"
+  local -r listener_arn="${4}"
+
+  local variables_dir
+  variables_dir="$(dirname "${default_variables_path}")"
+  local -r config_path="${config_dir}/alb.hcl"
+  local -r variables_path="${variables_dir}/alb.tfvars"
+
+  #
+  # ALB Variables
+  #
+
+  log_info "Writing ${variables_path}"
+
+  local -r variables=$(
+    cat << EOF
+listener_arn="${listener_arn}"
+EOF
+  )
+
+  echo -e "${variables}" > "${variables_path}"
+
+  chown ${NAME}:${NAME} "${variables_path}"
+  chmod 640 "${variables_path}"
+
+  #
+  # ALB Configuration
+  #
+
+  log_info "Writing ${config_path}"
+
+  local -r config=$(
+    cat << EOF
+task {
+  name        = "alb"
+  description = "Application Load Balancer"
+  module      = "escapace/alb-nia/aws"
+  version     = "${module_version}"
+
+  variable_files = [
+    "${default_variables_path}",
+    "${variables_path}"
+  ]
+
+  condition "services" {
+    regexp = ".*"
+  }
+}
+EOF
+  )
+
+  echo -e "${config}" > "${config_path}"
+
+  chown ${NAME}:${NAME} "${config_path}"
+  chmod 640 "${config_path}"
+}
+
 function run() {
   if [[ ! -f "/etc/sysconfig/ec2-environment" ]]; then
     print_usage
@@ -181,9 +241,10 @@ function run() {
   local enable_tls_encryption="true"
   local secrets_bucket_name=""
   local terraform_version="1.1.9"
-  local alb_module_version="0.2.0"
-  local alb_listener_arn=""
   local log_level="ERR"
+
+  local module_alb_version="1.0.1"
+  local module_alb_listener_arn=""
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
@@ -197,24 +258,24 @@ function run() {
         secrets_bucket_name="$2"
         shift
         ;;
-      --alb-listener-arn)
-        assert_not_empty "$key" "$2"
-        alb_listener_arn="$2"
-        shift
-        ;;
       --terraform-version)
         assert_not_empty "$key" "$2"
         terraform_version="$2"
         shift
         ;;
-      --alb-module-version)
-        assert_not_empty "$key" "$2"
-        alb_module_version="$2"
-        shift
-        ;;
       --log-level)
         assert_not_empty "$key" "$2"
         log_level="$2"
+        shift
+        ;;
+      --module-alb-version)
+        assert_not_empty "$key" "$2"
+        module_alb_version="$2"
+        shift
+        ;;
+      --module-alb-listener-arn)
+        assert_not_empty "$key" "$2"
+        module_alb_listener_arn="$2"
         shift
         ;;
       --help)
@@ -242,7 +303,7 @@ function run() {
   variables_dir=$(cd "$SCRIPT_DIR/../variables" && pwd)
 
   assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
-  assert_not_empty "--alb-listener-arn" "$alb_listener_arn"
+  assert_not_empty "--alb-listener-arn" "$module_alb_listener_arn"
 
   local consul_ca_file_path=""
   local consul_cert_file_path=""
@@ -251,17 +312,14 @@ function run() {
   local aws_secret_access_key
   local consul_acl_token
 
-  consul_acl_token="$(get_object_value "${secrets_bucket_name}" "${NAME}/consul/consul-acl-token-${NAME}")"
-  aws_access_key_id="$(get_object_value "${secrets_bucket_name}" "${NAME}/aws-access-key-id-${NAME}")"
-  aws_secret_access_key="$(get_object_value "${secrets_bucket_name}" "${NAME}/aws-secret-access-key-${NAME}")"
+  consul_acl_token="$(get_object_value "${secrets_bucket_name}" "server/${NAME}/consul-acl-token-${NAME}")"
+  aws_access_key_id="$(get_object_value "${secrets_bucket_name}" "server/${NAME}/aws-access-key-id-${NAME}")"
+  aws_secret_access_key="$(get_object_value "${secrets_bucket_name}" "server/${NAME}/aws-secret-access-key-${NAME}")"
 
   local -r systemd_config_path="/usr/lib/systemd/system/${NAME}.service"
   local -r environment_file_path="/etc/sysconfig/${NAME}-environment"
-  local -r default_variables_path="${variables_dir}/default.tfvars"
-  local -r alb_variables_path="${variables_dir}/alb.tfvars"
-
-  local -r default_config_path="${config_dir}/default.hcl"
-  local -r alb_config_path="${config_dir}/alb.hcl"
+  local -r variables_path="${variables_dir}/default.tfvars"
+  local -r config_path="${config_dir}/default.hcl"
 
   #
   # TLS
@@ -279,19 +337,19 @@ function run() {
     consul_key_file_path="${tls_path}/${NAME}-key.pem"
 
     get_object "${secrets_bucket_name}" \
-      "${NAME}/consul/consul-ca.pem" \
+      "server/${NAME}/consul-ca.pem" \
       "${consul_ca_file_path}" \
       "${NAME}"
 
     # if [[ "$server" == "true" ]]
     # then
     get_object "${secrets_bucket_name}" \
-      "${NAME}/consul/consul-${NAME}.pem" \
+      "server/${NAME}/consul-${NAME}.pem" \
       "${consul_cert_file_path}" \
       "${NAME}"
 
     get_object "${secrets_bucket_name}" \
-      "${NAME}/consul/consul-${NAME}-key.pem" \
+      "server/${NAME}/consul-${NAME}-key.pem" \
       "${consul_key_file_path}" \
       "${NAME}"
   fi
@@ -375,27 +433,27 @@ EOF
   # Default Variables
   #
 
-  log_info "Writing ${default_variables_path}"
+  log_info "Writing ${variables_path}"
 
-  local -r default_variables=$(
+  local -r variables=$(
     cat << EOF
 region="${EC2_INSTANCE_REGION}"
 vpc_id="${EC2_INSTANCE_ETH0_VPC_ID}"
 EOF
   )
 
-  echo -e "${default_variables}" > "${default_variables_path}"
+  echo -e "${variables}" > "${variables_path}"
 
-  chown ${NAME}:${NAME} "${default_variables_path}"
-  chmod 640 "${default_variables_path}"
+  chown ${NAME}:${NAME} "${variables_path}"
+  chmod 640 "${variables_path}"
 
   #
   # Default Configuration
   #
 
-  log_info "Writing ${default_config_path}"
+  log_info "Writing ${config_path}"
 
-  local -r default_config=$(
+  local -r config=$(
     cat << EOF
 log_level   = "${log_level}"
 working_dir = "/opt/${NAME}/tasks"
@@ -433,60 +491,19 @@ driver "terraform" {
 EOF
   )
 
-  echo -e "${default_config}" > "${default_config_path}"
+  echo -e "${config}" > "${config_path}"
 
-  chown ${NAME}:${NAME} "${default_config_path}"
-  chmod 640 "${default_config_path}"
+  chown ${NAME}:${NAME} "${config_path}"
+  chmod 640 "${config_path}"
 
-  #
-  # ALB Variables
-  #
-
-  log_info "Writing ${alb_variables_path}"
-
-  local -r alb_variables=$(
-    cat << EOF
-listener_arn="${alb_listener_arn}"
-EOF
-  )
-
-  echo -e "${alb_variables}" > "${alb_variables_path}"
-
-  chown ${NAME}:${NAME} "${alb_variables_path}"
-  chmod 640 "${alb_variables_path}"
-
-  #
-  # ALB Configuration
-  #
-
-  log_info "Writing ${alb_config_path}"
-
-  local -r alb_config=$(
-    cat << EOF
-task {
-  name        = "alb"
-  description = "Application Load Balancer"
-  module      = "escapace/alb-nia/aws"
-  version     = "${alb_module_version}"
-
-  variable_files = [
-    "${default_variables_path}",
-    "${alb_variables_path}"
-  ]
-
-  condition "services" {
-    regexp = ".*"
-  }
-}
-EOF
-  )
-
-  echo -e "${alb_config}" > "${alb_config_path}"
-
-  chown ${NAME}:${NAME} "${alb_config_path}"
-  chmod 640 "${alb_config_path}"
+  module_alb_configuration \
+    "${config_dir}" \
+    "${variables_path}" \
+    "${module_alb_version}" \
+    "${module_alb_listener_arn}"
 
   start_consul_terraform_sync
+
 }
 
 run "$@"

@@ -1,0 +1,113 @@
+---
+
+- name: consul-esm group
+  ansible.builtin.group:
+    name: consul-esm
+    state: present
+    system: true
+  tags:
+    - consul-esm
+
+- name: consul-esm user
+  ansible.builtin.user:
+    name: consul-esm
+    group: consul-esm
+    system: true
+    create_home: false
+  tags:
+    - consul-esm
+
+- name: create consul-esm directories
+  ansible.builtin.file:
+    owner: consul-esm
+    group: consul-esm
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  with_items:
+    - /opt/consul-esm
+    - /opt/consul-esm/bin
+  tags:
+    - consul-esm
+
+- name: create consul-esm directories
+  ansible.builtin.file:
+    owner: consul-esm
+    group: consul-esm
+    path: "{{ item }}"
+    state: directory
+    mode: 0750
+  with_items:
+    - /opt/consul-esm/config
+    - /opt/consul-esm/tls
+    - /opt/consul-esm/tls/ca
+  tags:
+    - consul-esm
+
+- name: check consul-esm version
+  ansible.builtin.slurp:
+    src: "/opt/consul-esm/version"
+  register: consul_current_esm_version
+  changed_when: false
+  ignore_errors: true
+  tags:
+    - consul-esm
+
+- name: install consul-esm
+  when: consul_current_esm_version.failed or consul_current_esm_version['content'] | b64decode != consul_esm_archive
+  block:
+    - name: download consul-esm
+      ansible.builtin.get_url:
+        url: "{{ consul_esm_archive_url }}"
+        dest: "/tmp/{{ consul_esm_archive }}"
+        checksum: "sha256:{{ consul_esm_archive_checksum_url }}"
+        mode: '0660'
+      changed_when: false
+
+    - name: extract consul-esm
+      ansible.builtin.unarchive:
+        src: "/tmp/{{ consul_esm_archive }}"
+        dest: "/opt/consul-esm/bin"
+        remote_src: true
+      changed_when: false
+
+    - name: chcon consul-esm binary
+      ansible.builtin.file:
+        path: "/opt/consul-esm/bin/consul-esm"
+        owner: consul-esm
+        group: consul-esm
+        mode: 0755
+        setype: bin_t
+        seuser: system_u
+
+    - name: write version
+      ansible.builtin.copy:
+        content: "{{ consul_esm_archive }}"
+        dest: "/opt/consul-esm/version"
+        owner: root
+        group: root
+        mode: '0644'
+  tags:
+    - consul-esm
+
+- name: create a nomad symbolic link
+  ansible.builtin.file:
+    src: "/opt/consul-esm/bin/consul-esm"
+    dest: /usr/bin/consul-esm
+    owner: consul-esm
+    group: consul-esm
+    mode: 0755
+    state: link
+  tags:
+    - consul-esm
+
+- name: copy run-consul-esm script
+  ansible.builtin.copy:
+    src: run-consul-esm
+    dest: /opt/consul-esm/bin/run-consul-esm
+    mode: 0750
+    owner: consul-esm
+    group: consul-esm
+  tags:
+    - consul-esm
+    - run-consul-esm
