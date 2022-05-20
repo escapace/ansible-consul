@@ -20,3 +20,7 @@ consul_terraform_sync_archive_checksum_url: "https://releases.hashicorp.com/cons
 consul_template_archive: "consul-template_{{ consul_template_version }}_linux_{{ consul_architecture }}.zip"
 consul_template_archive_url: "https://releases.hashicorp.com/consul-template/{{ consul_template_version }}/{{ consul_template_archive }}"
 consul_template_archive_checksum_url: "https://releases.hashicorp.com/consul-template/{{ consul_template_version }}/consul-template_{{ consul_template_version }}_SHA256SUMS"
+
+consul_esm_archive: "consul-esm_{{ consul_esm_version }}_linux_{{ consul_architecture }}.zip"
+consul_esm_archive_url: "https://releases.hashicorp.com/consul-esm/{{ consul_esm_version }}/{{ consul_esm_archive }}"
+consul_esm_archive_checksum_url: "https://releases.hashicorp.com/consul-esm/{{ consul_esm_version }}/consul-esm_{{ consul_esm_version }}_SHA256SUMS"

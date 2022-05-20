@@ -14,6 +14,9 @@ consul_template_version: 0.29.0
 consul_terraform_sync: false
 consul_terraform_sync_version: 0.5.2
 
+consul_esm: false
+consul_esm_version: 0.6.0
+
 consul_health_check: false
 consul_health_check_port: 8080
 consul_health_check_version: 0.0.8

@@ -12,7 +12,7 @@ SCRIPT_NAME=
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_NAME="$(basename "$0")"
 
-NAME="consul-terraform-sync"
+NAME="consul-esm"
 
 function wrap() {
   local strings="${1}"
@@ -65,21 +65,20 @@ function print_usage() {
   echo
   echo "Usage: $SCRIPT_NAME [OPTIONS]"
   echo
-  echo "This script is used to configure and run Consul Terraform Sync on an AWS server."
+  echo "This script is used to configure and run Consul ESM on an AWS server."
   echo
   echo "Options:"
   echo
   wrap "$(
-    echo -e "--log-level|The log level to use for CTS logging. The available log levels are \"TRACE\", \"DEBUG\", \"INFO\", \"WARN\", and \"ERR\"."
     echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
-    echo -e "--terraform-version|Terraform version."
-    echo -e "--module-alb-version|escapace/alb-nia/aws Terraform module version."
-    echo -e "--module-alb-listener-arn|ARN of the Application Load Balancer Listener."
+    echo -e "--log-level|The log level to use. The available log levels are \"TRACE\", \"DEBUG\", \"INFO\", \"WARN\", and \"ERR\"."
+    echo -e "--passing-threshold|The number of additional successful checks needed to trigger a status update to passing."
+    echo -e "--critical-threshold|The number of additional failed checks needed to trigger a status update to critical."
   )"
   echo
   echo "Example:"
   echo
-  echo "  $SCRIPT_NAME --secrets-bucket-name abcd --alb-listener-arn arn:aws:elasticloadbalancing:"
+  echo "  $SCRIPT_NAME --secrets-bucket-name abcd"
   echo
 
   # echo -e "--enable-tls-encryption|Enable encryption of traffic between nodes."
@@ -157,72 +156,12 @@ function assert_is_installed() {
   fi
 }
 
-function start_consul_terraform_sync() {
-  log_info "Reloading systemd config and starting Consul Terraform Sync"
+function start_consul_esm() {
+  log_info "Reloading systemd config and starting Consul ESM"
 
   sudo systemctl daemon-reload
   sudo systemctl enable ${NAME}.service
   sudo systemctl restart ${NAME}.service
-}
-
-function module_alb_configuration() {
-  local -r config_dir="${1}"
-  local -r default_variables_path="${2}"
-  local -r module_version="${3}"
-  local -r listener_arn="${4}"
-
-  local variables_dir
-  variables_dir="$(dirname "${default_variables_path}")"
-  local -r config_path="${config_dir}/alb.hcl"
-  local -r variables_path="${variables_dir}/alb.tfvars"
-
-  #
-  # ALB Variables
-  #
-
-  log_info "Writing ${variables_path}"
-
-  local -r variables=$(
-    cat << EOF
-listener_arn="${listener_arn}"
-EOF
-  )
-
-  echo -e "${variables}" > "${variables_path}"
-
-  chown ${NAME}:${NAME} "${variables_path}"
-  chmod 640 "${variables_path}"
-
-  #
-  # ALB Configuration
-  #
-
-  log_info "Writing ${config_path}"
-
-  local -r config=$(
-    cat << EOF
-task {
-  name        = "alb"
-  description = "Application Load Balancer"
-  module      = "escapace/alb-nia/aws"
-  version     = "${module_version}"
-
-  variable_files = [
-    "${default_variables_path}",
-    "${variables_path}"
-  ]
-
-  condition "services" {
-    regexp = ".*"
-  }
-}
-EOF
-  )
-
-  echo -e "${config}" > "${config_path}"
-
-  chown ${NAME}:${NAME} "${config_path}"
-  chmod 640 "${config_path}"
 }
 
 function run() {
@@ -240,11 +179,9 @@ function run() {
 
   local enable_tls_encryption="true"
   local secrets_bucket_name=""
-  local terraform_version="1.1.9"
   local log_level="ERR"
-
-  local module_alb_version="1.0.1"
-  local module_alb_listener_arn=""
+  local passing_threshold="1"
+  local critical_threshold="1"
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
@@ -258,24 +195,19 @@ function run() {
         secrets_bucket_name="$2"
         shift
         ;;
-      --terraform-version)
+      --passing-threshold)
         assert_not_empty "$key" "$2"
-        terraform_version="$2"
+        passing_threshold="$2"
+        shift
+        ;;
+      --critical-threshold)
+        assert_not_empty "$key" "$2"
+        critical_threshold="$2"
         shift
         ;;
       --log-level)
         assert_not_empty "$key" "$2"
         log_level="$2"
-        shift
-        ;;
-      --module-alb-version)
-        assert_not_empty "$key" "$2"
-        module_alb_version="$2"
-        shift
-        ;;
-      --module-alb-listener-arn)
-        assert_not_empty "$key" "$2"
-        module_alb_listener_arn="$2"
         shift
         ;;
       --help)
@@ -294,32 +226,22 @@ function run() {
 
   assert_is_installed "systemctl"
 
-  local bin_dir
   local config_dir
-  local variables_dir
 
-  bin_dir=$(cd "$SCRIPT_DIR/../bin" && pwd)
   config_dir=$(cd "$SCRIPT_DIR/../config" && pwd)
-  variables_dir=$(cd "$SCRIPT_DIR/../variables" && pwd)
 
   assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
-  assert_not_empty "--alb-listener-arn" "$module_alb_listener_arn"
 
   local consul_ca_file_path=""
   local consul_cert_file_path=""
   local consul_key_file_path=""
-  local aws_access_key_id
-  local aws_secret_access_key
   local consul_acl_token
 
   consul_acl_token="$(get_object_value "${secrets_bucket_name}" "server/${NAME}/consul-acl-token-${NAME}")"
-  aws_access_key_id="$(get_object_value "${secrets_bucket_name}" "server/${NAME}/aws-access-key-id-${NAME}")"
-  aws_secret_access_key="$(get_object_value "${secrets_bucket_name}" "server/${NAME}/aws-secret-access-key-${NAME}")"
 
   local -r systemd_config_path="/usr/lib/systemd/system/${NAME}.service"
   local -r environment_file_path="/etc/sysconfig/${NAME}-environment"
-  local -r variables_path="${variables_dir}/default.tfvars"
-  local -r config_path="${config_dir}/default.hcl"
+  local -r default_config_path="${config_dir}/default.hcl"
 
   #
   # TLS
@@ -362,9 +284,6 @@ function run() {
 
   local -r environment=$(
     cat << EOF
-AWS_REGION="${EC2_INSTANCE_REGION}"
-AWS_ACCESS_KEY_ID="${aws_access_key_id}"
-AWS_SECRET_ACCESS_KEY="${aws_secret_access_key}"
 CONSUL_HTTP_ADDR="localhost:8501"
 CONSUL_CACERT="${consul_ca_file_path}"
 CONSUL_CLIENT_CERT="${consul_cert_file_path}"
@@ -390,8 +309,8 @@ EOF
   local -r unit_config=$(
     cat << EOF
 [Unit]
-Description="HashiCorp Consul Terraform Sync"
-Documentation=https://www.consul.io/docs/nia
+Description="HashiCorp Consul ESM"
+Documentation=https://github.com/hashicorp/consul-esm
 After=consul-online.target
 After=network-online.target
 Wants=consul-online.target
@@ -406,7 +325,7 @@ EOF
 [Service]
 User=${NAME}
 Group=${NAME}
-ExecStart=consul lock -n 1 -name consul-terraform-sync-lock -child-exit-code consul-terraform-sync-lock "$bin_dir/${NAME} -config-dir $config_dir"
+ExecStart=consul-esm -config-dir $config_dir
 Restart=on-failure
 RestartSec=2
 TasksMax=infinity
@@ -430,80 +349,45 @@ EOF
   chmod 644 "${systemd_config_path}"
 
   #
-  # Default Variables
-  #
-
-  log_info "Writing ${variables_path}"
-
-  local -r variables=$(
-    cat << EOF
-region="${EC2_INSTANCE_REGION}"
-vpc_id="${EC2_INSTANCE_ETH0_VPC_ID}"
-EOF
-  )
-
-  echo -e "${variables}" > "${variables_path}"
-
-  chown ${NAME}:${NAME} "${variables_path}"
-  chmod 640 "${variables_path}"
-
-  #
   # Default Configuration
   #
 
-  log_info "Writing ${config_path}"
+  log_info "Writing ${default_config_path}"
 
-  local -r config=$(
+  local -r default_config=$(
     cat << EOF
-log_level   = "${log_level}"
-working_dir = "/opt/${NAME}/tasks"
-port        = 8558
+log_level      = "${log_level}"
+enable_syslog  = false
+instance_id    = "${EC2_INSTANCE_ID}"
+consul_service = "${NAME}"
+consul_kv_path = "consul-esm/"
 
-syslog {
-  enabled = false
+external_node_meta {
+  "external-node" = "true"
 }
 
-consul {
-  address = "localhost:8501"
+node_reconnect_timeout = "2h"
+node_probe_interval = "10s"
+disable_coordinate_updates = false
+client_address = "[::1]:8559"
 
-  tls {
-    enabled = true
-    verify = "${enable_tls_encryption}"
-  }
+telemetry {
+  prometheus_retention_time = "24h"
+  disable_hostname = true
 }
 
-buffer_period {
-  enabled = true
-  min     = "3s"
-  max     = "12s"
-}
+passing_threshold = ${passing_threshold}
+critical_threshold = ${critical_threshold}
 
-driver "terraform" {
-  version     = "${terraform_version}"
-  path        = "${bin_dir}"
-  log         = true
-  persist_log = false
-
-  backend "consul" {
-    gzip = true
-  }
-}
 EOF
   )
 
-  echo -e "${config}" > "${config_path}"
+  echo -e "${default_config}" > "${default_config_path}"
 
-  chown ${NAME}:${NAME} "${config_path}"
-  chmod 640 "${config_path}"
+  chown ${NAME}:${NAME} "${default_config_path}"
+  chmod 640 "${default_config_path}"
 
-  module_alb_configuration \
-    "${config_dir}" \
-    "${variables_path}" \
-    "${module_alb_version}" \
-    "${module_alb_listener_arn}"
-
-  start_consul_terraform_sync
-
+  start_consul_esm
 }
 
 run "$@"

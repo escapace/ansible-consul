@@ -173,17 +173,18 @@ function main() {
     nomad_client_token="$(get_token "nomad-client")"
     nomad_server_token="$(get_token "nomad-server")"
     consul_terraform_sync_token="$(get_token "consul-terraform-sync")"
+    consul_esm_token="$(get_token "consul-esm")"
 
     consul_policy_create "consul-agent" "Consul Agent Token Policy"
     consul_policy_create "consul-dns" "Consul DNS Policy"
     consul_policy_create "consul-ui" "Consul UI Policy"
     consul_policy_create "consul-telemetry" "Consul Telemetry Policy"
 
-    consul_policy_create "consul-terraform-sync" "Consul Terraform Sync"
+    consul_policy_create "consul-terraform-sync" "Consul Terraform Sync Policy"
+    consul_policy_create "consul-esm" "Consul ESM Policy"
 
     consul_policy_create "nomad-client" "Nomad Client Policy"
     consul_policy_create "nomad-server" "Nomad Server Policy"
-
 
     sleep 3
 
@@ -192,6 +193,7 @@ function main() {
     consul_token_update "Consul Telemetry Token" "${consul_telemetry_token}" "consul-telemetry"
 
     consul_token_update "Consul Terraform Sync Token" "${consul_terraform_sync_token}" "consul-terraform-sync"
+    consul_token_update "Consul ESM Token" "${consul_esm_token}" "consul-esm"
 
     consul_token_update "Nomad Client Token" "${nomad_client_token}" "nomad-client"
     consul_token_update "Nomad Server Token" "${nomad_server_token}" "nomad-server"
