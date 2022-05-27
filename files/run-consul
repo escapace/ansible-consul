@@ -288,9 +288,8 @@ function address_type {
 }
 
 function get_consul_address {
-  local -r server="${1}"
-  local -r ipv6="${2}"
-  local -r interface="${3}"
+  local -r ipv6="${1}"
+  local -r interface="${2}"
 
   local type
   local variable_reference
@@ -362,8 +361,8 @@ function generate_consul_config {
   local instance_availability_zone="${EC2_INSTANCE_AVAILABILITY_ZONE}"
   local instance_type="${EC2_INSTANCE_TYPE}"
 
-  advertise_addr="$(get_consul_address "${server}" "${ipv6}" "${interface}")"
-  bind_addr="$(get_consul_address "${server}" "${ipv6}" "${interface}")"
+  advertise_addr="$(get_consul_address "${ipv6}" "${interface}")"
+  bind_addr="$(get_consul_address "${ipv6}" "${interface}")"
 
   # local hostname=""
   # local instance_ip_address=""
@@ -685,7 +684,7 @@ function generate_ferm_config {
     domain="ip"
   fi
 
-  address="$(get_consul_address "${server}" "${ipv6}" "${interface}")"
+  address="$(get_consul_address "${ipv6}" "${interface}")"
   vpc_cidr="$(get_vpc_cidr "${ipv6}" "${interface}")"
 
   local -r template=$(cat <<EOF
