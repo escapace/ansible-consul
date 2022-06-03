@@ -70,6 +70,7 @@ function print_usage() {
   echo "Options:"
   echo
   wrap "$(
+    echo -e "--role|The instance role, one of \"server\", \"client\" or \"bastion\"."
     echo -e "--log-level|The log level to use for CTS logging. The available log levels are \"TRACE\", \"DEBUG\", \"INFO\", \"WARN\", and \"ERR\"."
     echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
     echo -e "--terraform-version|Terraform version."
@@ -148,12 +149,11 @@ function get_object_value() {
     "s3://${secrets_bucket_name}/${key}" /dev/stdout || exit 1
 }
 
-function address_type {
+function address_type() {
   local -r ipv6="${1}"
   local type
 
-  if [[ "$ipv6" == "true" ]]
-  then
+  if [[ "$ipv6" == "true" ]]; then
     type="ipv6"
   else
     type="ipv4"
@@ -162,7 +162,7 @@ function address_type {
   echo "${type}"
 }
 
-function get_address {
+function get_address() {
   local -r ipv6="${1}"
   local -r interface="${2}"
 
@@ -176,7 +176,7 @@ function get_address {
   echo "${!variable_reference}"
 }
 
-function get_vpc_cidr {
+function get_vpc_cidr() {
   local -r ipv6="${1}"
   local -r interface="${2}"
 
@@ -189,7 +189,6 @@ function get_vpc_cidr {
 
   echo "${!variable_reference}"
 }
-
 
 function assert_is_installed() {
   local -r name="$1"
@@ -268,7 +267,7 @@ EOF
   chmod 640 "${config_path}"
 }
 
-function write_ferm_configuration {
+function write_ferm_configuration() {
   log_info "Writing ferm configuration"
 
   local ipv6="$1"
@@ -280,8 +279,7 @@ function write_ferm_configuration {
   local domain
   local vpc_cidr
 
-  if [[ "$ipv6" == "true"  ]]
-  then
+  if [[ "$ipv6" == "true" ]]; then
     domain="ip6"
   else
     domain="ip"
@@ -290,20 +288,36 @@ function write_ferm_configuration {
   address="$(get_address "${ipv6}" "${interface}")"
   vpc_cidr="$(get_vpc_cidr "${ipv6}" "${interface}")"
 
-  local -r template=$(cat <<EOF
+  local -r template=$(
+    cat << EOF
 domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").vpc_cidr }} daddr {{ (ds "data").address }} {
   # the port for cts to use to serve api requests
   proto tcp dport 8558 ACCEPT;
 }
 
 EOF
-)
+  )
 
   echo "{ \"domain\": \"${domain}\", \"address\": \"${address}\", \"vpc_cidr\": \"${vpc_cidr}\" }" | jq '.' | gomplate \
     -i "${template}" -d data=stdin:///data.json > "${template_path}"
 
   chown root:root "${template_path}"
   chmod 600 "${template_path}"
+}
+
+function trust-ca() {
+  local -r source="${1}"
+  local name
+
+  name="$(basename "${source}")"
+
+  local -r path="/etc/pki/ca-trust/source/anchors/${name}"
+
+  cp -f "${source}" "${path}"
+  chown root:root "${path}"
+  chmod 644 "${path}"
+
+  update-ca-trust
 }
 
 function run() {
@@ -319,6 +333,7 @@ function run() {
   source "/etc/sysconfig/ec2-environment"
   set +o allexport
 
+  local role=""
   local enable_tls_encryption="true"
   local secrets_bucket_name=""
   local terraform_version="1.1.9"
@@ -334,6 +349,11 @@ function run() {
       # --enable-tls-encryption)
       #   enable_tls_encryption="true"
       #   ;;
+      --role)
+        assert_not_empty "$key" "$2"
+        role="$2"
+        shift
+        ;;
       --secrets-bucket-name)
         assert_not_empty "$key" "$2"
         secrets_bucket_name="$2"
@@ -377,6 +397,18 @@ function run() {
   assert_is_installed "jq"
   assert_is_installed "gomplate"
 
+  # if [[ "$enable_tls_encryption" == "true" ]]; then
+  assert_is_installed "update-ca-trust"
+  # fi
+
+  assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
+  assert_not_empty "--alb-listener-arn" "$module_alb_listener_arn"
+
+  if ! [[ "$role" == "server" || "$role" == "client" || "$role" == "bastion" ]]; then
+    log_error "Unrecognized value for the --role flag."
+    exit 1
+  fi
+
   local bin_dir
   local config_dir
   local variables_dir
@@ -385,9 +417,6 @@ function run() {
   config_dir=$(cd "$SCRIPT_DIR/../config" && pwd)
   variables_dir=$(cd "$SCRIPT_DIR/../variables" && pwd)
 
-  assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
-  assert_not_empty "--alb-listener-arn" "$module_alb_listener_arn"
-
   local consul_ca_file_path=""
   local consul_cert_file_path=""
   local consul_key_file_path=""
@@ -395,9 +424,9 @@ function run() {
   local aws_secret_access_key
   local consul_acl_token
 
-  consul_acl_token="$(get_object_value "${secrets_bucket_name}" "server/${NAME}/consul-acl-token-${NAME}")"
-  aws_access_key_id="$(get_object_value "${secrets_bucket_name}" "server/${NAME}/aws-access-key-id-${NAME}")"
-  aws_secret_access_key="$(get_object_value "${secrets_bucket_name}" "server/${NAME}/aws-secret-access-key-${NAME}")"
+  consul_acl_token="$(get_object_value "${secrets_bucket_name}" "${role}/${NAME}/consul-acl-token-${NAME}")"
+  aws_access_key_id="$(get_object_value "${secrets_bucket_name}" "${role}/${NAME}/aws-access-key-id-${NAME}")"
+  aws_secret_access_key="$(get_object_value "${secrets_bucket_name}" "${role}/${NAME}/aws-secret-access-key-${NAME}")"
 
   local -r systemd_config_path="/usr/lib/systemd/system/${NAME}.service"
   local -r environment_file_path="/etc/sysconfig/${NAME}-environment"
@@ -420,20 +449,41 @@ function run() {
     consul_key_file_path="${tls_path}/${NAME}-key.pem"
 
     get_object "${secrets_bucket_name}" \
-      "server/${NAME}/consul-ca.pem" \
+      "${role}/${NAME}/consul-ca.pem" \
       "${consul_ca_file_path}" \
       "${NAME}"
 
-    # if [[ "$server" == "true" ]]
-    # then
     get_object "${secrets_bucket_name}" \
-      "server/${NAME}/consul-${NAME}.pem" \
+      "${role}/${NAME}/consul-${NAME}.pem" \
       "${consul_cert_file_path}" \
       "${NAME}"
 
     get_object "${secrets_bucket_name}" \
-      "server/${NAME}/consul-${NAME}-key.pem" \
+      "${role}/${NAME}/consul-${NAME}-key.pem" \
       "${consul_key_file_path}" \
+      "${NAME}"
+
+    local cts_ca_file_path
+    local cts_cert_file_path
+    local cts_key_file_path
+
+    cts_ca_file_path="${tls_ca_path}/${NAME}-ca.pem"
+    cts_cert_file_path="${tls_path}/${NAME}-server.pem"
+    cts_key_file_path="${tls_path}/${NAME}-server-key.pem"
+
+    get_object "${secrets_bucket_name}" \
+      "${role}/${NAME}/${NAME}-ca.pem" \
+      "${cts_ca_file_path}" \
+      "${NAME}"
+
+    get_object "${secrets_bucket_name}" \
+      "${role}/${NAME}/${NAME}-server.pem" \
+      "${cts_cert_file_path}" \
+      "${NAME}"
+
+    get_object "${secrets_bucket_name}" \
+      "${role}/${NAME}/${NAME}-server-key.pem" \
+      "${cts_key_file_path}" \
       "${NAME}"
   fi
 
@@ -548,6 +598,14 @@ syslog {
   enabled = false
 }
 
+tls {
+  enabled         = true
+  cert            = "${cts_cert_file_path}"
+  key             = "${cts_key_file_path}"
+  verify_incoming = true
+  ca_cert         = "${cts_ca_file_path}"
+}
+
 consul {
   address = "localhost:8501"
 
@@ -561,7 +619,7 @@ consul {
     service_name = "consul-terraform-sync"
 
     default_check {
-      enabled = true
+      enabled = false
     }
   }
 }
@@ -599,6 +657,8 @@ EOF
   write_ferm_configuration \
     "false" \
     "eth0"
+
+  trust-ca "$cts_ca_file_path"
 
   start_consul_terraform_sync
 }

@@ -162,6 +162,7 @@ consul_token_anonymous_update() {
 }
 
 function main() {
+  local consul_operator_token
   local consul_telemetry_token
   local nomad_client_token
   local nomad_server_token
@@ -169,13 +170,15 @@ function main() {
 
   if consul_is_leader
   then
+    consul_operator_token="$(get_token "consul-operator")"
     consul_telemetry_token="$(get_token "consul-telemetry")"
     nomad_client_token="$(get_token "nomad-client")"
     nomad_server_token="$(get_token "nomad-server")"
     consul_terraform_sync_token="$(get_token "consul-terraform-sync")"
     consul_esm_token="$(get_token "consul-esm")"
 
-    consul_policy_create "consul-agent" "Consul Agent Token Policy"
+    consul_policy_create "consul-operator" "Consul Operator Policy"
+    consul_policy_create "consul-agent" "Consul Agent Policy"
     consul_policy_create "consul-dns" "Consul DNS Policy"
     consul_policy_create "consul-ui" "Consul UI Policy"
     consul_policy_create "consul-telemetry" "Consul Telemetry Policy"
@@ -191,6 +194,7 @@ function main() {
     consul_token_anonymous_update "consul-dns" "consul-ui"
     consul_token_update "Consul Agent Token" "${CONSUL_AGENT_TOKEN}" "consul-agent"
     consul_token_update "Consul Telemetry Token" "${consul_telemetry_token}" "consul-telemetry"
+    consul_token_update "Consul Operator Token" "${consul_operator_token}" "consul-operator"
 
     consul_token_update "Consul Terraform Sync Token" "${consul_terraform_sync_token}" "consul-terraform-sync"
     consul_token_update "Consul ESM Token" "${consul_esm_token}" "consul-esm"
