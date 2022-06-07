@@ -726,8 +726,6 @@ EOF
 function start_consul() {
   log_info "Reloading systemd config and starting Consul"
 
-  local server="$1"
-
   sudo systemctl daemon-reload
   sudo systemctl enable consul-online.target
   sudo systemctl restart ferm consul-online.target
@@ -779,9 +777,6 @@ function run() {
   local enable_tls_encryption="false"
   local verify_server_hostname="false"
   local verify_incoming_https="false"
-  local ca_file_path=""
-  local cert_file_path=""
-  local key_file_path=""
   local environment=()
   local ui_config_enabled="false"
   local ipv6="false"
@@ -1024,7 +1019,7 @@ function run() {
 
   trust-ca "$consul_ca_file_path"
 
-  start_consul "$server"
+  start_consul
 }
 
 run "$@"
