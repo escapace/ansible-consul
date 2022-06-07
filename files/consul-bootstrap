@@ -167,6 +167,7 @@ function main() {
   local nomad_client_token
   local nomad_server_token
   local consul_terraform_sync_token
+  local vault_service_registration_token
 
   if consul_is_leader
   then
@@ -176,6 +177,7 @@ function main() {
     nomad_server_token="$(get_token "nomad-server")"
     consul_terraform_sync_token="$(get_token "consul-terraform-sync")"
     consul_esm_token="$(get_token "consul-esm")"
+    vault_service_registration_token="$(get_token "vault-service-registration")"
 
     consul_policy_create "consul-operator" "Consul Operator Policy"
     consul_policy_create "consul-agent" "Consul Agent Policy"
@@ -189,6 +191,8 @@ function main() {
     consul_policy_create "nomad-client" "Nomad Client Policy"
     consul_policy_create "nomad-server" "Nomad Server Policy"
 
+    consul_policy_create "vault-service-registration" "Vault Service Registration Policy"
+
     sleep 3
 
     consul_token_anonymous_update "consul-dns" "consul-ui"
@@ -201,6 +205,8 @@ function main() {
 
     consul_token_update "Nomad Client Token" "${nomad_client_token}" "nomad-client"
     consul_token_update "Nomad Server Token" "${nomad_server_token}" "nomad-server"
+
+    consul_token_update "Vault Service Registration Policy" "${vault_service_registration_token}" "vault-service-registration"
   fi
 }
 
