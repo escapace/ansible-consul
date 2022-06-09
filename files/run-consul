@@ -85,9 +85,7 @@ function print_usage() {
     echo -e "--role|The instance role, one of \"server\", \"client\" or \"bastion\"."
     echo -e "--auto-join-tag-key|Automatically form a cluster with instances that have this tag key."
     echo -e "--auto-join-tag-value|Automatically form a cluster with instances that have this tag value."
-    echo -e "--enable-gossip-encryption|Enable encryption of gossip traffic between nodes."
     echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
-    echo -e "--enable-tls-encryption|Enable encryption of traffic between nodes."
     echo -e "--verify-server-hostname|When passed in, enable server hostname verification as part of RPC encryption."
     echo -e "--verify-incoming-https|If set to true, Consul requires that all incoming HTTPS connections make use of TLS."
     echo -e "--environment|A single environment variable in the key/value pair form 'KEY=\"val\"' to pass to Consul as environment variable when starting it up."
@@ -314,71 +312,60 @@ function generate_consul_config() {
   local -r user="${3}"
   local -r auto_join_tag_key="${4}"
   local -r auto_join_tag_value="${5}"
-  local -r enable_gossip_encryption="${6}"
-  local -r gossip_encryption_key="${7}"
-  local -r enable_tls_encryption="${8}"
-  local -r verify_server_hostname="${9}"
-  local -r verify_incoming_https="${10}"
-  local -r ca_file_path="${11}"
-  local -r cert_file_path="${12}"
-  local -r key_file_path="${13}"
-  local -r cleanup_dead_servers="${14}"
-  local -r last_contact_threshold="${15}"
-  local -r max_trailing_logs="${16}"
-  local -r server_stabilization_time="${17}"
-  local -r redundancy_zone_tag="${18}"
-  local -r disable_upgrade_migration="${19}"
-  local -r upgrade_version_tag=${20}
-  local -r ui_config_enabled=${21}
-  local -r acl_tokens_initial_management="${22}"
-  local -r acl_tokens_agent="${23}"
-  local -r ipv6="${24}"
-  local -r interface="${25}"
+  local -r gossip_encryption_key="${6}"
+  local -r verify_server_hostname="${7}"
+  local -r verify_incoming_https="${8}"
+  local -r ca_file_path="${9}"
+  local -r cert_file_path="${10}"
+  local -r key_file_path="${11}"
+  local -r cleanup_dead_servers="${12}"
+  local -r last_contact_threshold="${13}"
+  local -r max_trailing_logs="${14}"
+  local -r server_stabilization_time="${15}"
+  local -r redundancy_zone_tag="${16}"
+  local -r disable_upgrade_migration="${17}"
+  local -r upgrade_version_tag="${18}"
+  local -r ui_config_enabled="${19}"
+  local -r acl_tokens_initial_management="${20}"
+  local -r acl_tokens_agent="${21}"
+  local -r ipv6="${22}"
+  local -r interface="${23}"
   local -r config_path="$config_dir/$CONSUL_CONFIG_FILE"
 
-  shift 25
+  shift 23
 
-  local advertise_addr
-  local bind_addr
   local instance_id="${EC2_INSTANCE_ID}"
   local instance_region="${EC2_INSTANCE_REGION}"
   local instance_availability_zone="${EC2_INSTANCE_AVAILABILITY_ZONE}"
   local instance_type="${EC2_INSTANCE_TYPE}"
 
+  local advertise_addr
   advertise_addr="$(get_consul_address "${ipv6}" "${interface}")"
+
+  local bind_addr
   bind_addr="$(get_consul_address "${ipv6}" "${interface}")"
 
-  # local hostname=""
-  # local instance_ip_address=""
-  # instance_ip_address=$(get_instance_ip_address)
-  # hostname="$(get_instance_hostname)"
-
-  local retry_join_json=""
-  if [[ -z "$auto_join_tag_key" || -z "$auto_join_tag_value" ]]; then
-    log_warn "Either the cluster tag key ($auto_join_tag_key) or value ($auto_join_tag_value) is empty. Will not automatically try to form a cluster based on EC2 tags."
-  else
-
-    if [[ "$ipv6" == "false" ]]; then
-      retry_join_json=$(
-        cat << EOF
+  local retry_join_json
+  if [[ "$ipv6" == "false" ]]; then
+    retry_join_json=$(
+      cat << EOF
 "retry_join": ["provider=aws addr_type=private_v4 region=$instance_region tag_key=$auto_join_tag_key tag_value=$auto_join_tag_value"],
 EOF
-      )
-    else
-      retry_join_json=$(
-        cat << EOF
+    )
+  else
+    retry_join_json=$(
+      cat << EOF
 "retry_join": ["provider=aws addr_type=public_v6 region=$instance_region tag_key=$auto_join_tag_key tag_value=$auto_join_tag_value"],
 EOF
-      )
-    fi
+    )
   fi
 
   local bootstrap_expect=""
   local acl_configuration=""
-  if [[ "$server" == "true" ]]; then
-    local instance_tags=""
-    local cluster_size=""
+  local instance_tags=""
+  local cluster_size=""
 
+  if [[ "$server" == "true" ]]; then
     instance_tags=$(get_instance_tags "$instance_id")
     cluster_size=$(get_cluster_size "$instance_tags")
 
@@ -432,18 +419,15 @@ EOF
 EOF
   )
 
-  local gossip_encryption_configuration=""
-  if [[ "$enable_gossip_encryption" == "true" && -n "$gossip_encryption_key" ]]; then
-    log_info "Creating gossip encryption configuration"
-    gossip_encryption_configuration="\"encrypt\": \"$gossip_encryption_key\","
-  fi
+  log_info "Creating gossip encryption configuration"
+  gossip_encryption_configuration="\"encrypt\": \"$gossip_encryption_key\","
 
   local tls_configuration=""
 
-  if [[ "$enable_tls_encryption" == "true" && -n "$ca_file_path" && -n "$cert_file_path" && -n "$key_file_path" ]]; then
-    log_info "Creating TLS encryption configuration"
-    tls_configuration=$(
-      cat << EOF
+  log_info "Creating TLS encryption configuration"
+
+  tls_configuration=$(
+    cat << EOF
 "tls": {
   "defaults": {
     "ca_file": "$ca_file_path",
@@ -463,8 +447,7 @@ EOF
   }
 },
 EOF
-    )
-  fi
+  )
 
   local addresses
   local ports
@@ -768,9 +751,7 @@ function run() {
   local auto_join_tag_key=""
   local auto_join_tag_value=""
   local upgrade_version_tag=""
-  local enable_gossip_encryption="false"
   local secrets_bucket_name=""
-  local enable_tls_encryption="false"
   local verify_server_hostname="false"
   local verify_incoming_https="false"
   local environment=()
@@ -842,12 +823,6 @@ function run() {
         secrets_bucket_name="$2"
         shift
         ;;
-      --enable-gossip-encryption)
-        enable_gossip_encryption="true"
-        ;;
-      --enable-tls-encryption)
-        enable_tls_encryption="true"
-        ;;
       --verify-server-hostname)
         verify_server_hostname="true"
         ;;
@@ -886,6 +861,8 @@ function run() {
 
   assert_not_empty "--role" "$role"
   assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
+  assert_not_empty "--auto-join-tag-key" "$auto_join_tag_key"
+  assert_not_empty "--auto-join-tag-value" "$auto_join_tag_value"
 
   if [[ "$role" == "server" ]]; then
     server="true"
@@ -903,86 +880,72 @@ function run() {
   assert_is_installed "curl"
   assert_is_installed "jq"
   assert_is_installed "gomplate"
-
-  if [[ "$enable_tls_encryption" == "true" ]]; then
-    assert_is_installed "update-ca-trust"
-  fi
+  assert_is_installed "update-ca-trust"
 
   local config_dir
-  local data_dir
-  local bin_dir
-  local user
-
   config_dir=$(cd "$SCRIPT_DIR/../config" && pwd)
+
+  local data_dir
   data_dir=$(cd "$SCRIPT_DIR/../data" && pwd)
+
+  local bin_dir
   bin_dir=$(cd "$SCRIPT_DIR/../bin" && pwd)
+
+  local user
   user=$(get_owner_of_path "$config_dir")
 
   local type
-
   if [[ "$server" == "true" ]]; then
     type="server"
   else
     type="client"
   fi
 
-  local consul_ca_file_path=""
-  local consul_cert_file_path=""
-  local consul_key_file_path=""
-
-  local acl_tokens_initial_management=""
-  local acl_tokens_agent=""
-
   local gossip_encryption_key=""
+  gossip_encryption_key="$(get_object_value "${secrets_bucket_name}" "${role}/consul/consul-gossip-encryption-key")"
 
-  if [[ "$enable_gossip_encryption" == "true" ]]; then
-    gossip_encryption_key="$(get_object_value "${secrets_bucket_name}" "${role}/consul/consul-gossip-encryption-key")"
-  fi
+  local tls_path
+  tls_path="$(cd "$SCRIPT_DIR/../tls" && pwd)"
+  local tls_ca_path
+  tls_ca_path="$(cd "$SCRIPT_DIR/../tls/ca" && pwd)"
 
-  if [[ "$enable_tls_encryption" == "true" ]]; then
-    local tls_path
-    local tls_ca_path
+  local consul_ca_file_path=""
+  consul_ca_file_path="${tls_ca_path}/consul-ca.pem"
+  local consul_cert_file_path=""
+  consul_cert_file_path="${tls_path}/consul-${type}.pem"
+  local consul_key_file_path=""
+  consul_key_file_path="${tls_path}/consul-${type}-key.pem"
 
-    tls_path="$(cd "$SCRIPT_DIR/../tls" && pwd)"
-    tls_ca_path="$(cd "$SCRIPT_DIR/../tls/ca" && pwd)"
+  get_object "${secrets_bucket_name}" \
+    "${role}/consul/consul-ca.pem" \
+    "${consul_ca_file_path}" \
+    "${user}"
 
-    consul_ca_file_path="${tls_ca_path}/consul-ca.pem"
-    consul_cert_file_path="${tls_path}/consul-${type}.pem"
-    consul_key_file_path="${tls_path}/consul-${type}-key.pem"
+  get_object "${secrets_bucket_name}" \
+    "${role}/consul/consul-${type}.pem" \
+    "${consul_cert_file_path}" \
+    "${user}"
 
-    get_object "${secrets_bucket_name}" \
-      "${role}/consul/consul-ca.pem" \
-      "${consul_ca_file_path}" \
-      "${user}"
+  get_object "${secrets_bucket_name}" \
+    "${role}/consul/consul-${type}-key.pem" \
+    "${consul_key_file_path}" \
+    "${user}"
 
-    # if [[ "$server" == "true" ]]
-    # then
-    get_object "${secrets_bucket_name}" \
-      "${role}/consul/consul-${type}.pem" \
-      "${consul_cert_file_path}" \
-      "${user}"
-
-    get_object "${secrets_bucket_name}" \
-      "${role}/consul/consul-${type}-key.pem" \
-      "${consul_key_file_path}" \
-      "${user}"
-    # fi
-  fi
-
+  local acl_tokens_agent=""
   acl_tokens_agent="$(get_object_value "${secrets_bucket_name}" "${role}/consul/consul-acl-token-consul-agent")"
 
+  local acl_tokens_initial_management=""
   if [[ "$server" == "true" ]]; then
     acl_tokens_initial_management="$(get_object_value "${secrets_bucket_name}" "${role}/consul/consul-acl-token-consul-initial-management")"
   fi
 
-  generate_consul_config "$server" \
+  generate_consul_config \
+    "$server" \
     "$config_dir" \
     "$user" \
     "$auto_join_tag_key" \
     "$auto_join_tag_value" \
-    "$enable_gossip_encryption" \
     "$gossip_encryption_key" \
-    "$enable_tls_encryption" \
     "$verify_server_hostname" \
     "$verify_incoming_https" \
     "$consul_ca_file_path" \
@@ -1001,7 +964,8 @@ function run() {
     "$ipv6" \
     "$interface"
 
-  generate_systemd_config "$server" \
+  generate_systemd_config \
+    "$server" \
     "$config_dir" \
     "$data_dir" \
     "$bin_dir" \
@@ -1009,7 +973,8 @@ function run() {
     "$secrets_bucket_name" \
     "${environment[@]}"
 
-  generate_ferm_config "$server" \
+  generate_ferm_config \
+    "$server" \
     "$ipv6" \
     "$interface"
 
