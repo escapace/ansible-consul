@@ -178,6 +178,7 @@ function main() {
     consul_terraform_sync_token="$(get_token "consul-terraform-sync")"
     consul_esm_token="$(get_token "consul-esm")"
     vault_service_registration_token="$(get_token "vault-service-registration")"
+    vault_consul_secrets_engine="$(get_token "vault-consul-secrets-engine")"
 
     consul_policy_create "consul-operator" "Consul Operator Policy"
     consul_policy_create "consul-agent" "Consul Agent Policy"
@@ -207,6 +208,7 @@ function main() {
     consul_token_update "Nomad Server Token" "${nomad_server_token}" "nomad-server"
 
     consul_token_update "Vault Service Registration Policy" "${vault_service_registration_token}" "vault-service-registration"
+    consul_token_update "Vault Consul Secrets Engine" "${vault_consul_secrets_engine}" "global-management"
   fi
 }
 
