@@ -204,7 +204,7 @@ function start_consul_terraform_sync() {
 
   sudo systemctl daemon-reload
   sudo systemctl enable ${NAME}.service
-  sudo systemctl restart ferm ${NAME}.service
+  sudo systemctl --no-block restart ferm ${NAME}.service
 }
 
 function module_alb_configuration() {

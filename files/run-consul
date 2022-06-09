@@ -707,7 +707,7 @@ function start_consul() {
 
   sudo systemctl daemon-reload
   sudo systemctl enable consul-online.target
-  sudo systemctl restart ferm consul-online.target
+  sudo systemctl --no-block restart ferm consul-online.target
 }
 
 # Based on: http://unix.stackexchange.com/a/7732/215969
