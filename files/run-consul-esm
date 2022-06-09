@@ -162,7 +162,7 @@ function start_consul_esm() {
 
   sudo systemctl daemon-reload
   sudo systemctl enable ${NAME}.service
-  sudo systemctl restart ${NAME}.service
+  sudo systemctl --no-block restart ${NAME}.service
 }
 
 function run() {
