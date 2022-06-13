@@ -74,16 +74,14 @@ function print_usage() {
     echo -e "--log-level|The log level to use for CTS logging. The available log levels are \"TRACE\", \"DEBUG\", \"INFO\", \"WARN\", and \"ERR\"."
     echo -e "--secrets-bucket-name|AWS S3 secrets bucket name."
     echo -e "--terraform-version|Terraform version."
+    echo -e "--module-alb-enabled|Enable ALB module."
     echo -e "--module-alb-version|escapace/alb-nia/aws Terraform module version."
     echo -e "--module-alb-listener-arn|ARN of the Application Load Balancer Listener."
+    echo -e "--module-dns-enabled|Enable DNS module."
+    echo -e "--module-dns-version|escapace/route53-nia/aws Terraform module version."
+    echo -e "--module-dns-zone-id|Route53 hosted zone id."
   )"
   echo
-  echo "Example:"
-  echo
-  echo "  $SCRIPT_NAME --secrets-bucket-name abcd --module-alb-listener-arn arn:aws:elasticloadbalancing:"
-  echo
-
-  # echo -e "--enable-tls-encryption|Enable encryption of traffic between nodes."
 }
 
 function log() {
@@ -209,12 +207,10 @@ function start_consul_terraform_sync() {
 
 function module_alb_configuration() {
   local -r config_dir="${1}"
-  local -r default_variables_path="${2}"
+  local -r variables_dir="${2}"
   local -r module_version="${3}"
   local -r listener_arn="${4}"
 
-  local variables_dir
-  variables_dir="$(dirname "${default_variables_path}")"
   local -r config_path="${config_dir}/alb.hcl"
   local -r variables_path="${variables_dir}/alb.tfvars"
 
@@ -226,6 +222,8 @@ function module_alb_configuration() {
 
   local -r variables=$(
     cat << EOF
+region="${EC2_INSTANCE_REGION}"
+vpc_id="${EC2_INSTANCE_ETH0_VPC_ID}"
 listener_arn="${listener_arn}"
 EOF
   )
@@ -249,10 +247,101 @@ task {
   module      = "escapace/alb-nia/aws"
   version     = "${module_version}"
 
-  variable_files = [
-    "${default_variables_path}",
-    "${variables_path}"
-  ]
+  variable_files = ["${variables_path}"]
+
+  condition "services" {
+    regexp = ".*"
+  }
+}
+EOF
+  )
+
+  echo -e "${config}" > "${config_path}"
+
+  chown ${NAME}:${NAME} "${config_path}"
+  chmod 640 "${config_path}"
+}
+
+function write_ferm_configuration() {
+  log_info "Writing ferm configuration"
+
+  local ipv6="$1"
+  local interface="$2"
+
+  local template_path="/etc/ferm/ferm.d/1010-consul-terraform-sync.conf"
+
+  local address
+  local domain
+  local vpc_cidr
+
+  if [[ "$ipv6" == "true" ]]; then
+    domain="ip6"
+  else
+    domain="ip"
+  fi
+
+  address="$(get_address "${ipv6}" "${interface}")"
+  vpc_cidr="$(get_vpc_cidr "${ipv6}" "${interface}")"
+
+  local -r template=$(
+    cat << EOF
+domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").vpc_cidr }} daddr {{ (ds "data").address }} {
+  # the port for cts to use to serve api requests
+  proto tcp dport 8558 ACCEPT;
+}
+
+EOF
+  )
+
+  echo "{ \"domain\": \"${domain}\", \"address\": \"${address}\", \"vpc_cidr\": \"${vpc_cidr}\" }" | jq '.' | gomplate \
+    -i "${template}" -d data=stdin:///data.json > "${template_path}"
+
+  chown root:root "${template_path}"
+  chmod 600 "${template_path}"
+}
+
+function module_dns_configuration() {
+  local -r config_dir="${1}"
+  local -r variables_dir="${2}"
+  local -r module_version="${3}"
+  local -r zone_id="${4}"
+
+  local -r config_path="${config_dir}/dns.hcl"
+  local -r variables_path="${variables_dir}/dns.tfvars"
+
+  #
+  # DNS Variables
+  #
+
+  log_info "Writing ${variables_path}"
+
+  local -r variables=$(
+    cat << EOF
+region="${EC2_INSTANCE_REGION}"
+zone_id="${zone_id}"
+EOF
+  )
+
+  echo -e "${variables}" > "${variables_path}"
+
+  chown ${NAME}:${NAME} "${variables_path}"
+  chmod 640 "${variables_path}"
+
+  #
+  # DNS Configuration
+  #
+
+  log_info "Writing ${config_path}"
+
+  local -r config=$(
+    cat << EOF
+task {
+  name        = "dns"
+  description = "Route53"
+  module      = "escapace/route53-nia/aws"
+  version     = "${module_version}"
+
+  variable_files = ["${variables_path}"]
 
   condition "services" {
     regexp = ".*"
@@ -339,16 +428,18 @@ function run() {
   local terraform_version="1.1.9"
   local log_level="ERR"
 
-  local module_alb_version="1.0.1"
+  local module_alb_enabled="false"
+  local module_alb_version="1.2.3"
   local module_alb_listener_arn=""
+
+  local module_dns_enabled="false"
+  local module_dns_version="0.2.0"
+  local module_dns_zone_id=""
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
 
     case "$key" in
-      # --enable-tls-encryption)
-      #   enable_tls_encryption="true"
-      #   ;;
       --role)
         assert_not_empty "$key" "$2"
         role="$2"
@@ -369,6 +460,9 @@ function run() {
         log_level="$2"
         shift
         ;;
+      --module-alb-enabled)
+        module_alb_enabled="true"
+        ;;
       --module-alb-version)
         assert_not_empty "$key" "$2"
         module_alb_version="$2"
@@ -377,6 +471,19 @@ function run() {
       --module-alb-listener-arn)
         assert_not_empty "$key" "$2"
         module_alb_listener_arn="$2"
+        shift
+        ;;
+      --module-dns-enabled)
+        module_dns_enabled="true"
+        ;;
+      --module-dns-version)
+        assert_not_empty "$key" "$2"
+        module_dns_version="$2"
+        shift
+        ;;
+      --module-dns-zone-id)
+        assert_not_empty "$key" "$2"
+        module_dns_zone_id="$2"
         shift
         ;;
       --help)
@@ -397,16 +504,34 @@ function run() {
   assert_is_installed "jq"
   assert_is_installed "gomplate"
 
-  # if [[ "$enable_tls_encryption" == "true" ]]; then
   assert_is_installed "update-ca-trust"
-  # fi
-
   assert_not_empty "--secrets-bucket-name" "$secrets_bucket_name"
-  assert_not_empty "--alb-listener-arn" "$module_alb_listener_arn"
+
+  if [[ "${module_alb_enabled}" == "true" ]]; then
+    assert_not_empty "--module-alb-listener-arn" "$module_alb_listener_arn"
+  fi
+
+  if [[ "${module_dns_enabled}" == "true" ]]; then
+    assert_not_empty "--module-dns-zone-id" "$module_dns_enabled"
+  fi
+
+  if [[ "${module_alb_enabled}" == "false" && "${module_dns_enabled}" == "false" ]]
+  then
+    log_error "Enable at least one module."
+
+    exit 1
+  fi
+
+  # else
+  # fi
 
   if ! [[ "$role" == "server" || "$role" == "client" || "$role" == "bastion" ]]; then
     log_error "Unrecognized value for the --role flag."
     exit 1
+  fi
+
+  if systemctl is-active "${NAME}.service" &> /dev/null; then
+    systemctl stop "${NAME}.service"
   fi
 
   local bin_dir
@@ -416,6 +541,10 @@ function run() {
   bin_dir=$(cd "$SCRIPT_DIR/../bin" && pwd)
   config_dir=$(cd "$SCRIPT_DIR/../config" && pwd)
   variables_dir=$(cd "$SCRIPT_DIR/../variables" && pwd)
+
+  rm -f "${bin_dir}/terraform" \
+    "${config_dir}"/* \
+    "${variables_dir}"/*
 
   local consul_ca_file_path=""
   local consul_cert_file_path=""
@@ -430,7 +559,6 @@ function run() {
 
   local -r systemd_config_path="/usr/lib/systemd/system/${NAME}.service"
   local -r environment_file_path="/etc/sysconfig/${NAME}-environment"
-  local -r variables_path="${variables_dir}/default.tfvars"
   local -r config_path="${config_dir}/default.hcl"
 
   #
@@ -564,28 +692,6 @@ EOF
   chown root:root "${systemd_config_path}"
   chmod 644 "${systemd_config_path}"
 
-  #
-  # Default Variables
-  #
-
-  log_info "Writing ${variables_path}"
-
-  local -r variables=$(
-    cat << EOF
-region="${EC2_INSTANCE_REGION}"
-vpc_id="${EC2_INSTANCE_ETH0_VPC_ID}"
-EOF
-  )
-
-  echo -e "${variables}" > "${variables_path}"
-
-  chown ${NAME}:${NAME} "${variables_path}"
-  chmod 640 "${variables_path}"
-
-  #
-  # Default Configuration
-  #
-
   log_info "Writing ${config_path}"
 
   local -r config=$(
@@ -648,11 +754,21 @@ EOF
   chown ${NAME}:${NAME} "${config_path}"
   chmod 640 "${config_path}"
 
-  module_alb_configuration \
-    "${config_dir}" \
-    "${variables_path}" \
-    "${module_alb_version}" \
-    "${module_alb_listener_arn}"
+  if [[ "${module_alb_enabled}" == "true" ]]; then
+    module_alb_configuration \
+      "${config_dir}" \
+      "${variables_dir}" \
+      "${module_alb_version}" \
+      "${module_alb_listener_arn}"
+  fi
+
+  if [[ "${module_dns_enabled}" == "true" ]]; then
+    module_dns_configuration \
+      "${config_dir}" \
+      "${variables_dir}" \
+      "${module_dns_version}" \
+      "${module_dns_zone_id}"
+  fi
 
   write_ferm_configuration \
     "false" \
