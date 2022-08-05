@@ -82,7 +82,7 @@ function consul_agent_self_leader() {
   local consul_http_addr="${CONSUL_HTTP_ADDR}"
   local consul_http_token="${CONSUL_INITIAL_MANAGEMENT_TOKEN}"
 
-  curl -s -k \
+  curl -f -s -k \
     --header "Authorization: Bearer ${consul_http_token}" \
     "${consul_http_addr}/v1/agent/self" | jq -r '.Stats.consul.leader' 2>/dev/null
 }
