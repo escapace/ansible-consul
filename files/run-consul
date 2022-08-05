@@ -280,13 +280,6 @@ function get_consul_address() {
 
   variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_ADDRESS"
 
-  # if [[ "${server}" == "false" && -v "EC2_INSTANCE_${interface^^}_${type^^}_PREFIX_ADDRESS" ]]
-  # then
-  #   variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_PREFIX_ADDRESS"
-  # else
-  #   variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_ADDRESS"
-  # fi
-
   echo "${!variable_reference}"
 }
 
@@ -672,7 +665,7 @@ domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").
   # proto tcp dport 8502 ACCEPT;
 }
 
-{{ if bool ((ds "data").server) }}
+{{ if conv.ToBool ((ds "data").server) }}
 domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").vpc_cidr }} daddr {{ (ds "data").address }} {
   # server: server rpc address (tcp only)
   proto tcp dport 8300 ACCEPT;

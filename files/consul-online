@@ -49,7 +49,7 @@ function consul_check_has_leader() {
 function consul_check_peers() {
   local consul_http_addr="${CONSUL_HTTP_ADDR}"
 
-  if [[ "$(curl -s -k --header "Authorization: Bearer ${CONSUL_HTTP_TOKEN}" "${consul_http_addr}/v1/status/peers" | jq -r '.|length' 2>/dev/null)" -ge "${CONSUL_MIN_PEERS}" ]]
+  if [[ "$(curl -f -s -k --header "Authorization: Bearer ${CONSUL_HTTP_TOKEN}" "${consul_http_addr}/v1/status/peers" | jq -r '.|length' 2>/dev/null)" -ge "${CONSUL_MIN_PEERS}" ]]
   then
     true
   else
