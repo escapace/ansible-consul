@@ -537,6 +537,7 @@ EOF
   $connect_configuration
   $ui_config
   "telemetry": {
+    "disable_compat_1.9": true,
     "prometheus_retention_time": "24h",
     "disable_hostname": true
   }
