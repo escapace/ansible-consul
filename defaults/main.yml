@@ -1,6 +1,6 @@
 ---
 
-consul_version: 1.12.5
+consul_version: 1.14.3
 consul_server: false
 consul_volume: true
 consul_volume_size: 45%VG
