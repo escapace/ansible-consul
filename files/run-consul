@@ -468,7 +468,7 @@ EOF
 "addresses": {
   "http": "127.0.0.1 ::1",
   "https": "127.0.0.1 ::1 ${bind_addr}",
-  "grpc": "127.0.0.1 ::1"
+  "grpc_tls": "127.0.0.1 ::1"
 },
 EOF
     )
@@ -477,7 +477,7 @@ EOF
       cat << EOF
 "ports": {
   "https": 8501,
-  "grpc": 8502
+  "grpc_tls": 8503
 },
 EOF
     )
@@ -537,7 +537,6 @@ EOF
   $connect_configuration
   $ui_config
   "telemetry": {
-    "disable_compat_1.9": true,
     "prometheus_retention_time": "24h",
     "disable_hostname": true
   }
@@ -661,8 +660,8 @@ domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").
   # http: the http api (tcp only)
   # proto tcp dport 8500 ACCEPT;
 
-  # grpc: the grpc api (disabled)
-  # proto tcp dport 8502 ACCEPT;
+  # grpc: the grpc tls api (disabled)
+  # proto tcp dport 8503 ACCEPT;
 }
 
 {{ if conv.ToBool ((ds "data").server) }}
