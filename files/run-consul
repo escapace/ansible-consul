@@ -422,20 +422,25 @@ EOF
   tls_configuration=$(
     cat << EOF
 "tls": {
-  "defaults": {
+  "grpc": {
+    "ca_file": "$ca_file_path",
+    "cert_file": "$cert_file_path",
+    "key_file": "$key_file_path",
+    "verify_incoming": true
+  },
+  "https": {
+    "ca_file": "$ca_file_path",
+    "cert_file": "$cert_file_path",
+    "key_file": "$key_file_path",
+    "verify_incoming": $verify_incoming_https,
+    "verify_outgoing": true
+  },
+  "internal_rpc": {
     "ca_file": "$ca_file_path",
     "cert_file": "$cert_file_path",
     "key_file": "$key_file_path",
     "verify_incoming": true,
-    "verify_outgoing": true
-  },
-  "grpc": {
-    "verify_incoming": false
-  },
-  "https": {
-    "verify_incoming": $verify_incoming_https
-  },
-  "internal_rpc": {
+    "verify_outgoing": true,
     "verify_server_hostname": $verify_server_hostname
   }
 },
@@ -468,6 +473,7 @@ EOF
 "addresses": {
   "http": "127.0.0.1 ::1",
   "https": "127.0.0.1 ::1 ${bind_addr}",
+  "grpc": "127.0.0.1 ::1",
   "grpc_tls": "127.0.0.1 ::1"
 },
 EOF
@@ -477,6 +483,7 @@ EOF
       cat << EOF
 "ports": {
   "https": 8501,
+  "grpc": 8502,
   "grpc_tls": 8503
 },
 EOF
@@ -524,6 +531,9 @@ EOF
   $ports
   "datacenter": "$instance_region",
   "node_name": "$instance_id",
+  "leave_on_terminate": true,
+  "skip_leave_on_interrupt": false,
+  "rejoin_after_leave": true,
   "node_meta": {
     "instance_id": "${instance_id}",
     "availability_zone": "$instance_availability_zone",
