@@ -80,7 +80,12 @@
     mode: 0755
 
 - name: create consul service
-  ansible.builtin.template: src=templates/consul.service.j2 dest=/usr/lib/systemd/system/consul.service owner=root group=root mode=0644
+  ansible.builtin.template:
+    src: templates/consul.service.j2
+    dest: /usr/lib/systemd/system/consul.service
+    owner: root
+    group: root
+    mode: 0644
   notify:
     - consul daemon-reload
 
@@ -93,12 +98,22 @@
     group: consul
 
 - name: create consul-online service
-  ansible.builtin.template: src=templates/consul-online.service.j2 dest=/usr/lib/systemd/system/consul-online.service owner=root group=root mode=0644
+  ansible.builtin.template:
+    src: templates/consul-online.service.j2
+    dest: /usr/lib/systemd/system/consul-online.service
+    owner: root
+    group: root
+    mode: 0644
   notify:
     - consul daemon-reload
 
 - name: create consul-online target
-  ansible.builtin.template: src=templates/consul-online.target.j2 dest=/usr/lib/systemd/system/consul-online.target owner=root group=root mode=0644
+  ansible.builtin.template:
+    src: templates/consul-online.target.j2
+    dest: /usr/lib/systemd/system/consul-online.target
+    owner: root
+    group: root
+    mode: 0644
   notify:
     - consul daemon-reload
 

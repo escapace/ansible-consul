@@ -11,6 +11,8 @@
 
 - name: install consul-template
   when: consul_current_template_version.failed or consul_current_template_version['content'] | b64decode != consul_template_archive
+  tags:
+    - consul-template
   block:
     - name: download consul-template
       ansible.builtin.get_url:
@@ -43,8 +45,6 @@
         owner: root
         group: root
         mode: '0644'
-  tags:
-    - consul-template
 
 - name: create a consul-template symbolic link
   ansible.builtin.file:
