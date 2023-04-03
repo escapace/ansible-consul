@@ -55,6 +55,8 @@
 
 - name: install consul-esm
   when: consul_current_esm_version.failed or consul_current_esm_version['content'] | b64decode != consul_esm_archive
+  tags:
+    - consul-esm
   block:
     - name: download consul-esm
       ansible.builtin.get_url:
@@ -87,8 +89,6 @@
         owner: root
         group: root
         mode: '0644'
-  tags:
-    - consul-esm
 
 - name: create a nomad symbolic link
   ansible.builtin.file:

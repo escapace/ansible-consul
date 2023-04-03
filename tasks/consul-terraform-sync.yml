@@ -56,6 +56,8 @@
 
 - name: install consul-terraform-sync
   when: consul_current_terraform_sync_version.failed or consul_current_terraform_sync_version['content'] | b64decode != consul_terraform_sync_archive
+  tags:
+    - consul-terraform-sync
   block:
     - name: download consul-terraform-sync
       ansible.builtin.get_url:
@@ -88,8 +90,6 @@
         owner: root
         group: root
         mode: '0644'
-  tags:
-    - consul-terraform-sync
 
 - name: create a nomad symbolic link
   ansible.builtin.file:
