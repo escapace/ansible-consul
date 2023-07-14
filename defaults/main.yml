@@ -1,6 +1,6 @@
 ---
 
-consul_version: 1.15.2
+consul_version: 1.16.0
 consul_server: false
 consul_volume: true
 consul_volume_size: 45%VG
@@ -9,7 +9,7 @@ consul_volume_fs_type: "xfs"
 consul_volume_mount: /opt/consul/data
 
 consul_template: true
-consul_template_version: 0.31.0
+consul_template_version: 0.32.0
 
 consul_terraform_sync: false
 consul_terraform_sync_version: 0.7.0
