@@ -300,32 +300,33 @@ function get_vpc_cidr() {
 function generate_consul_config() {
   umask 027
 
-  local -r server="${1}"
-  local -r config_dir="${2}"
-  local -r user="${3}"
-  local -r auto_join_tag_key="${4}"
-  local -r auto_join_tag_value="${5}"
-  local -r gossip_encryption_key="${6}"
-  local -r verify_server_hostname="${7}"
-  local -r verify_incoming_https="${8}"
-  local -r ca_file_path="${9}"
-  local -r cert_file_path="${10}"
-  local -r key_file_path="${11}"
-  local -r cleanup_dead_servers="${12}"
-  local -r last_contact_threshold="${13}"
-  local -r max_trailing_logs="${14}"
-  local -r server_stabilization_time="${15}"
-  local -r redundancy_zone_tag="${16}"
-  local -r disable_upgrade_migration="${17}"
-  local -r upgrade_version_tag="${18}"
-  local -r ui_config_enabled="${19}"
-  local -r acl_tokens_initial_management="${20}"
-  local -r acl_tokens_agent="${21}"
-  local -r ipv6="${22}"
-  local -r interface="${23}"
+  local -r role="${1}"
+  local -r server="${2}"
+  local -r config_dir="${3}"
+  local -r user="${4}"
+  local -r auto_join_tag_key="${5}"
+  local -r auto_join_tag_value="${6}"
+  local -r gossip_encryption_key="${7}"
+  local -r verify_server_hostname="${8}"
+  local -r verify_incoming_https="${9}"
+  local -r ca_file_path="${10}"
+  local -r cert_file_path="${11}"
+  local -r key_file_path="${12}"
+  local -r cleanup_dead_servers="${13}"
+  local -r last_contact_threshold="${14}"
+  local -r max_trailing_logs="${15}"
+  local -r server_stabilization_time="${16}"
+  local -r redundancy_zone_tag="${17}"
+  local -r disable_upgrade_migration="${18}"
+  local -r upgrade_version_tag="${19}"
+  local -r ui_config_enabled="${20}"
+  local -r acl_tokens_initial_management="${21}"
+  local -r acl_tokens_agent="${22}"
+  local -r ipv6="${23}"
+  local -r interface="${24}"
   local -r config_path="$config_dir/$CONSUL_CONFIG_FILE"
 
-  shift 23
+  shift 24
 
   local instance_id="${EC2_INSTANCE_ID}"
   local instance_region="${EC2_INSTANCE_REGION}"
@@ -535,9 +536,10 @@ EOF
   "skip_leave_on_interrupt": false,
   "rejoin_after_leave": true,
   "node_meta": {
-    "instance_id": "${instance_id}",
     "availability_zone": "$instance_availability_zone",
-    "instance_type": "$instance_type"
+    "instance_id": "${instance_id}",
+    "instance_type": "$instance_type",
+    "role": "${role}"
   },
   $retry_join_json
   "server": $server,
@@ -593,6 +595,7 @@ EOF
   local -r service_config=$(
     cat << EOF
 [Service]
+Type=notify
 User=$consul_user
 Group=$consul_user
 ExecStart=$consul_bin_dir/consul agent -config-dir $consul_config_dir -data-dir $consul_data_dir
@@ -942,6 +945,7 @@ function run() {
   fi
 
   generate_consul_config \
+    "$role" \
     "$server" \
     "$config_dir" \
     "$user" \
