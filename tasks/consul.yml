@@ -36,7 +36,7 @@
   ansible.builtin.shell: bash /tmp/install-consul --version {{ consul_version }}
   args:
     chdir: /
-    creates: /opt/consul/bin/consul
+  #   creates: /opt/consul/bin/consul
 
 - name: delete temporary install-consul script
   ansible.builtin.file:
