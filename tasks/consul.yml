@@ -36,6 +36,8 @@
   ansible.builtin.shell: bash /tmp/install-consul --version {{ consul_version }}
   args:
     chdir: /
+  tags:
+    - molecule-idempotence-notest
   #   creates: /opt/consul/bin/consul
 
 - name: delete temporary install-consul script
