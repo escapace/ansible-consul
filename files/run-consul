@@ -42,15 +42,15 @@ function wrap() {
       width=$((cols - length - 4))
     fi
 
-    echo -e "${strings}" \
-      | fold -s -w "${width}" \
-      | sed -e "/--/! s|^| \||g" \
-      | column -t -s '|' \
-      | sed 's/^/  /'
+    echo -e "${strings}" |
+      fold -s -w "${width}" |
+      sed -e "/--/! s|^| \||g" |
+      column -t -s '|' |
+      sed 's/^/  /'
   else
     local lines
     local line
-    readarray -t lines <<< "${strings}"
+    readarray -t lines <<<"${strings}"
     local option
     local description
 
@@ -221,7 +221,7 @@ function get_object() {
   aws s3api get-object \
     --bucket "${secrets_bucket_name}" \
     --key "${key}" \
-    "${target}" > /dev/null || exit 1
+    "${target}" >/dev/null || exit 1
 
   chown "${user}:${user}" "${target}"
 }
@@ -332,6 +332,7 @@ function generate_consul_config() {
   local instance_region="${EC2_INSTANCE_REGION}"
   local instance_availability_zone="${EC2_INSTANCE_AVAILABILITY_ZONE}"
   local instance_type="${EC2_INSTANCE_TYPE}"
+  local instance_lifecycle="${EC2_INSTANCE_LIFECYCLE}"
 
   local advertise_addr
   advertise_addr="$(get_consul_address "${ipv6}" "${interface}")"
@@ -342,13 +343,13 @@ function generate_consul_config() {
   local retry_join_json
   if [[ "$ipv6" == "false" ]]; then
     retry_join_json=$(
-      cat << EOF
+      cat <<EOF
 "retry_join": ["provider=aws addr_type=private_v4 region=$instance_region tag_key=$auto_join_tag_key tag_value=$auto_join_tag_value"],
 EOF
     )
   else
     retry_join_json=$(
-      cat << EOF
+      cat <<EOF
 "retry_join": ["provider=aws addr_type=public_v6 region=$instance_region tag_key=$auto_join_tag_key tag_value=$auto_join_tag_value"],
 EOF
     )
@@ -366,7 +367,7 @@ EOF
     bootstrap_expect="\"bootstrap_expect\": $cluster_size,"
 
     acl_configuration=$(
-      cat << EOF
+      cat <<EOF
 "acl" : {
   "enabled" : true,
   "enable_key_list_policy": true,
@@ -384,7 +385,7 @@ EOF
 
   if [[ "$server" == "false" ]]; then
     acl_configuration=$(
-      cat << EOF
+      cat <<EOF
 "acl" : {
   "enabled" : true,
   "enable_key_list_policy": true,
@@ -400,7 +401,7 @@ EOF
 
   local autopilot_configuration
   autopilot_configuration=$(
-    cat << EOF
+    cat <<EOF
 "autopilot": {
   "cleanup_dead_servers": $cleanup_dead_servers,
   "last_contact_threshold": "$last_contact_threshold",
@@ -421,7 +422,7 @@ EOF
   log_info "Creating TLS encryption configuration"
 
   tls_configuration=$(
-    cat << EOF
+    cat <<EOF
 "tls": {
   "grpc": {
     "ca_file": "$ca_file_path",
@@ -453,7 +454,7 @@ EOF
 
   if [[ "$server" == "true" ]]; then
     addresses=$(
-      cat << EOF
+      cat <<EOF
 "addresses": {
   "http": "127.0.0.1 ::1",
   "https": "127.0.0.1 ::1 ${bind_addr}"
@@ -462,7 +463,7 @@ EOF
     )
 
     ports=$(
-      cat << EOF
+      cat <<EOF
 "ports": {
   "https": 8501
 },
@@ -470,7 +471,7 @@ EOF
     )
   else
     addresses=$(
-      cat << EOF
+      cat <<EOF
 "addresses": {
   "http": "127.0.0.1 ::1",
   "https": "127.0.0.1 ::1 ${bind_addr}",
@@ -481,7 +482,7 @@ EOF
     )
 
     ports=$(
-      cat << EOF
+      cat <<EOF
 "ports": {
   "https": 8501,
   "grpc": 8502,
@@ -495,7 +496,7 @@ EOF
   if [[ "$server" == "true" ]]; then
     log_info "Creating Consul Connect configuration"
     connect_configuration=$(
-      cat << EOF
+      cat <<EOF
 "connect": {
   "enabled": true
 },
@@ -506,7 +507,7 @@ EOF
   local ui_config=""
   if [[ "$server" == "true" && "$ui_config_enabled" == true ]]; then
     ui_config=$(
-      cat << EOF
+      cat <<EOF
 "ui_config": {
   "enabled": true,
   "metrics_provider": "prometheus",
@@ -521,7 +522,7 @@ EOF
   log_info "Creating default Consul configuration"
   local default_config_json
   default_config_json=$(
-    cat << EOF
+    cat <<EOF
 {
   "advertise_addr": "${advertise_addr}",
   "bind_addr": "${bind_addr}",
@@ -538,6 +539,7 @@ EOF
   "node_meta": {
     "availability_zone": "$instance_availability_zone",
     "instance_id": "${instance_id}",
+    "instance_lifecycle": "${instance_lifecycle}",
     "instance_type": "$instance_type",
     "role": "${role}"
   },
@@ -548,6 +550,18 @@ EOF
   $autopilot_configuration
   $connect_configuration
   $ui_config
+  "performance": {
+    "raft_multiplier": 1
+  },
+  "raft_logstore": {
+    "backend": "wal",
+    "disable_log_cache": true,
+    "verification": {
+      "enabled": true,
+      "interval": "60s"
+    }
+  },
+  "log_level": "WARN",
   "telemetry": {
     "prometheus_retention_time": "24h",
     "disable_hostname": true
@@ -556,7 +570,7 @@ EOF
 EOF
   )
   log_info "Installing Consul config file in $config_path"
-  echo "$default_config_json" | jq '.' > "$config_path"
+  echo "$default_config_json" | jq '.' >"$config_path"
   chown "$user:$user" "$config_path"
 }
 
@@ -579,7 +593,7 @@ function generate_systemd_config() {
   log_info "Creating systemd config file to run Consul in $systemd_config_path"
 
   local -r unit_config=$(
-    cat << EOF
+    cat <<EOF
 [Unit]
 Description="HashiCorp Consul - A service mesh solution"
 Documentation=https://www.consul.io/
@@ -593,7 +607,7 @@ EOF
   )
 
   local -r service_config=$(
-    cat << EOF
+    cat <<EOF
 [Service]
 Type=notify
 User=$consul_user
@@ -612,27 +626,27 @@ EOF
   )
 
   local -r install_config=$(
-    cat << EOF
+    cat <<EOF
 [Install]
 WantedBy=multi-user.target
 EOF
   )
 
-  echo -e "$unit_config" > "$systemd_config_path"
-  echo -e "$service_config" >> "$systemd_config_path"
-  echo -e "$install_config" >> "$systemd_config_path"
+  echo -e "$unit_config" >"$systemd_config_path"
+  echo -e "$service_config" >>"$systemd_config_path"
+  echo -e "$install_config" >>"$systemd_config_path"
 
   if [[ "$server" == "true" ]]; then
     log_info "Creating systemd bootstrap config file ${CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH}"
 
     local -r bootstrap_config=$(
-      cat << EOF
+      cat <<EOF
 [Service]
 Environment='CONSUL_SECRETS_BUCKET_NAME=${secrets_bucket_name}'
 
 EOF
     )
-    echo -e "$bootstrap_config" > "${CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH}"
+    echo -e "$bootstrap_config" >"${CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH}"
   fi
 }
 
@@ -659,7 +673,7 @@ function generate_ferm_config() {
   vpc_cidr="$(get_vpc_cidr "${ipv6}" "${interface}")"
 
   local -r template=$(
-    cat << EOF
+    cat <<EOF
 domain (ip ip6) table filter {
   chain OUTPUT {
     daddr (169.254.169.254 fd00:ec2::254) proto tcp mod owner uid-owner "consul" ACCEPT;
@@ -701,7 +715,7 @@ EOF
   )
 
   echo "{ \"server\": ${server}, \"domain\": \"${domain}\", \"address\": \"${address}\", \"vpc_cidr\": \"${vpc_cidr}\" }" | jq '.' | gomplate \
-    -i "${template}" -d data=stdin:///data.json > "${template_path}"
+    -i "${template}" -d data=stdin:///data.json >"${template_path}"
 
   chown root:root "${template_path}"
   chmod 600 "${template_path}"
@@ -774,91 +788,91 @@ function run() {
     local key="$1"
 
     case "$key" in
-      --role)
-        assert_not_empty "$key" "$2"
-        role="$2"
-        shift
-        ;;
-      --auto-join-tag-key)
-        assert_not_empty "$key" "$2"
-        auto_join_tag_key="$2"
-        shift
-        ;;
-      --auto-join-tag-value)
-        assert_not_empty "$key" "$2"
-        auto_join_tag_value="$2"
-        shift
-        ;;
-      --autopilot-cleanup-dead-servers)
-        assert_not_empty "$key" "$2"
-        cleanup_dead_servers="$2"
-        shift
-        ;;
-      --autopilot-last-contact-threshold)
-        assert_not_empty "$key" "$2"
-        last_contact_threshold="$2"
-        shift
-        ;;
-      --autopilot-max-trailing-logs)
-        assert_not_empty "$key" "$2"
-        max_trailing_logs="$2"
-        shift
-        ;;
-      --autopilot-server-stabilization-time)
-        assert_not_empty "$key" "$2"
-        server_stabilization_time="$2"
-        shift
-        ;;
-      --autopilot-redundancy-zone-tag)
-        assert_not_empty "$key" "$2"
-        redundancy_zone_tag="$2"
-        shift
-        ;;
-      --autopilot-disable-upgrade-migration)
-        disable_upgrade_migration="true"
-        shift
-        ;;
-      --autopilot-upgrade-version-tag)
-        assert_not_empty "$key" "$2"
-        upgrade_version_tag="$2"
-        shift
-        ;;
-      --secrets-bucket-name)
-        assert_not_empty "$key" "$2"
-        secrets_bucket_name="$2"
-        shift
-        ;;
-      --verify-server-hostname)
-        verify_server_hostname="true"
-        ;;
-      --verify-incoming-https)
-        verify_incoming_https="true"
-        ;;
-      --environment)
-        assert_not_empty "$key" "$2"
-        environment+=("$2")
-        shift
-        ;;
-      --ui)
-        ui_config_enabled="true"
-        ;;
-      --ipv6)
-        ipv6="true"
-        ;;
-      --interface)
-        assert_not_empty "$key" "$2"
-        interface="$2"
-        shift
-        ;;
-      --help)
-        print_usage
-        exit
-        ;;
-      *)
-        log_error "Unrecognized argument: $key"
-        print_usage
-        exit 1
-        ;;
+    --role)
+      assert_not_empty "$key" "$2"
+      role="$2"
+      shift
+      ;;
+    --auto-join-tag-key)
+      assert_not_empty "$key" "$2"
+      auto_join_tag_key="$2"
+      shift
+      ;;
+    --auto-join-tag-value)
+      assert_not_empty "$key" "$2"
+      auto_join_tag_value="$2"
+      shift
+      ;;
+    --autopilot-cleanup-dead-servers)
+      assert_not_empty "$key" "$2"
+      cleanup_dead_servers="$2"
+      shift
+      ;;
+    --autopilot-last-contact-threshold)
+      assert_not_empty "$key" "$2"
+      last_contact_threshold="$2"
+      shift
+      ;;
+    --autopilot-max-trailing-logs)
+      assert_not_empty "$key" "$2"
+      max_trailing_logs="$2"
+      shift
+      ;;
+    --autopilot-server-stabilization-time)
+      assert_not_empty "$key" "$2"
+      server_stabilization_time="$2"
+      shift
+      ;;
+    --autopilot-redundancy-zone-tag)
+      assert_not_empty "$key" "$2"
+      redundancy_zone_tag="$2"
+      shift
+      ;;
+    --autopilot-disable-upgrade-migration)
+      disable_upgrade_migration="true"
+      shift
+      ;;
+    --autopilot-upgrade-version-tag)
+      assert_not_empty "$key" "$2"
+      upgrade_version_tag="$2"
+      shift
+      ;;
+    --secrets-bucket-name)
+      assert_not_empty "$key" "$2"
+      secrets_bucket_name="$2"
+      shift
+      ;;
+    --verify-server-hostname)
+      verify_server_hostname="true"
+      ;;
+    --verify-incoming-https)
+      verify_incoming_https="true"
+      ;;
+    --environment)
+      assert_not_empty "$key" "$2"
+      environment+=("$2")
+      shift
+      ;;
+    --ui)
+      ui_config_enabled="true"
+      ;;
+    --ipv6)
+      ipv6="true"
+      ;;
+    --interface)
+      assert_not_empty "$key" "$2"
+      interface="$2"
+      shift
+      ;;
+    --help)
+      print_usage
+      exit
+      ;;
+    *)
+      log_error "Unrecognized argument: $key"
+      print_usage
+      exit 1
+      ;;
     esac
 
     shift
