@@ -5,6 +5,7 @@
   tags:
     - run-consul
     - consul-bootstrap
+    - consul-snapshot
 
 - ansible.builtin.include_tasks: consul-terraform-sync.yml
   when: ansible_os_family == "RedHat" and consul_terraform_sync | bool

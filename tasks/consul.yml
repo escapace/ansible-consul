@@ -123,6 +123,7 @@
   when: consul_server | bool is true
   tags:
     - consul-bootstrap
+    - consul-snapshot
 
 - ansible.builtin.include_tasks: health-check.yml
   when: consul_health_check | bool is true
