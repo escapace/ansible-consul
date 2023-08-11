@@ -25,3 +25,29 @@
     path: /etc/systemd/system/consul-bootstrap.service.d
     state: directory
     mode: 0755
+
+- name: copy consul-snapshot script
+  ansible.builtin.copy:
+    src: consul-snapshot
+    dest: /opt/consul/bin/consul-snapshot
+    mode: 0750
+    owner: consul
+    group: consul
+  tags:
+    - consul-snapshot
+
+- name: create consul-snapshot service
+  ansible.builtin.template:
+    src: templates/consul-snapshot.service.j2
+    dest: /usr/lib/systemd/system/consul-snapshot.service
+    owner: root
+    group: root
+    mode: 0644
+  notify:
+    - consul daemon-reload
+
+- name: create directory for systemd drop-ins
+  ansible.builtin.file:
+    path: /etc/systemd/system/consul-snapshot.service.d
+    state: directory
+    mode: 0755

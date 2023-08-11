@@ -1,0 +1,11 @@
+[Unit]
+Description="Consul Snapshot"
+ConditionFileNotEmpty=/opt/consul/config/default.json
+After=consul-online.target
+Wants=consul-online.target
+
+[Service]
+Type=oneshot
+User=consul
+Group=consul
+ExecStart=retry /opt/consul/bin/consul-snapshot

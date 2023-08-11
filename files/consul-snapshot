@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+
+set -o errexit
+set -o errtrace
+set -o pipefail
+
+readonly script_name="$(basename "$0")"
+readonly script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly directory="$(cd "$script_dir/.." && pwd)"
+readonly bin_dir="${directory}/bin"
+readonly config_dir="${directory}/config"
+readonly http_addr="http://[::1]:8500"
+readonly snapshot_path="${directory}/snapshot"
+readonly token="$(cat "${config_dir}/default.json" | jq -r '.acl.tokens.initial_management')"
+
+set -o allexport
+source "/etc/sysconfig/ec2-environment"
+set +o allexport
+
+function log {
+  local -r level="$1"
+  local -r message="$2"
+  local -r timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+  echo >&2 -e "${timestamp} [${level}] [$script_name] ${message}"
+}
+
+function log_info {
+  local -r message="$1"
+  log "INFO" "$message"
+}
+
+function log_error {
+  local -r message="$1"
+  log "ERROR" "$message"
+}
+
+if [[ -z "${SECRETS_BUCKET_NAME}" ]]; then
+  log_error "SECRETS_BUCKET_NAME not set"
+
+  exit 1
+fi
+
+function check_has_leader() {
+  local leader_http_code
+
+  leader_http_code=$(curl --silent --header "Authorization: Bearer ${token}" --output /dev/null --write-out "%{http_code}" "${http_addr}/v1/operator/raft/configuration") || leader_http_code=""
+
+  if [[ "${leader_http_code}" != "200" ]]; then
+    return 1
+  fi
+}
+
+function agent_self_leader() {
+  curl -f -s -k \
+    --header "Authorization: Bearer ${token}" \
+    "${http_addr}/v1/agent/self" | jq -r '.Stats.consul.leader' 2>/dev/null
+}
+
+function is_leader() {
+  until [[ "$(agent_self_leader)" == "true" ]] || [[ "$(agent_self_leader)" == "false" ]]; do
+    echo "Waiting for Consul to get a leader..."
+    sleep 5
+  done
+
+  [[ "$(agent_self_leader)" == "true" ]]
+}
+
+function snapshot() {
+  CONSUL_HTTP_ADDR="${http_addr}" \
+    CONSUL_HTTP_TOKEN="${token}" \
+    "${bin_dir}/consul" snapshot save "${snapshot_path}" &> /dev/null || return 1
+
+  chmod 600 "${snapshot_path}" || return 1
+
+  aws s3api put-object \
+    --tagging "instance-id=${EC2_INSTANCE_ID}" \
+    --bucket "${SECRETS_BUCKET_NAME}" \
+    --key "${EC2_INSTANCE_REGION}/server/consul/snapshot/latest" \
+    --body "${snapshot_path}" &> /dev/null || return 1
+
+  rm -f "${snapshot_path}" &>/dev/null || true
+
+  log_info "consul snapshot taken"
+}
+
+function main() {
+  check_has_leader || return 1
+  is_leader || return 0
+  snapshot || {
+    log_error "unable to take consul snapshot"
+    rm -f "${snapshot_path}" &>/dev/null
+    return 1
+  }
+}
+
+main

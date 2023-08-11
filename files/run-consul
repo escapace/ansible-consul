@@ -16,6 +16,8 @@ readonly AWS_ASG_TAG_KEY="aws:autoscaling:groupName"
 readonly CONSUL_CONFIG_FILE="default.json"
 readonly CONSUL_SYSTEMD_CONFIG_PATH="/usr/lib/systemd/system/consul.service"
 readonly CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH="/etc/systemd/system/consul-bootstrap.service.d/010-secrets-bucket.conf"
+readonly CONSUL_SNAPSHOT_SYSTEMD_CONFIG_PATH="/etc/systemd/system/consul-snapshot.service.d/010-secrets-bucket.conf"
+readonly CONSUL_SNAPSHOT_TIMER_SYSTEMD_CONFIG_PATH="/usr/lib/systemd/system/consul-snapshot.timer"
 readonly MAX_RETRIES=30
 readonly SLEEP_BETWEEN_RETRIES_SEC=10
 readonly DEFAULT_AUTOPILOT_CLEANUP_DEAD_SERVERS="true"
@@ -90,6 +92,7 @@ function print_usage() {
     echo -e "--verify-incoming-https|If set to true, Consul requires that all incoming HTTPS connections make use of TLS."
     echo -e "--environment|A single environment variable in the key/value pair form 'KEY=\"val\"' to pass to Consul as environment variable when starting it up."
     echo -e "--ui|Enables the service of the web UI from this agent."
+    echo -e "--snapshot-on|Calendar event expression for consul snapsots."
     echo -e "--interface|Bind to interface."
     echo -e "--ipv6|Use IPv6."
   )"
@@ -588,8 +591,9 @@ function generate_systemd_config() {
   local -r consul_bin_dir="$4"
   local -r consul_user="$5"
   local -r secrets_bucket_name="$6"
+  local -r snapshot_on="$7"
 
-  shift 6
+  shift 7
   local -r environment=("$@")
 
   local -r config_path="$consul_config_dir/$CONSUL_CONFIG_FILE"
@@ -623,6 +627,7 @@ KillMode=process
 KillSignal=SIGTERM
 LimitNOFILE=65536
 Restart=on-failure
+PrivateTmp=yes
 TimeoutSec=300s
 
 $(split_by_lines "Environment=" "${environment[@]}")
@@ -652,6 +657,38 @@ Environment='CONSUL_SECRETS_BUCKET_NAME=${secrets_bucket_name}'
 EOF
     )
     echo -e "$bootstrap_config" >"${CONSUL_BOOTSTRAP_SYSTEMD_CONFIG_PATH}"
+
+    log_info "Creating systemd snapshot config file ${CONSUL_SNAPSHOT_SYSTEMD_CONFIG_PATH}"
+
+    local -r snapshot_config=$(
+      cat <<EOF
+[Service]
+Environment='SECRETS_BUCKET_NAME=${secrets_bucket_name}'
+
+EOF
+    )
+    echo -e "$snapshot_config" >"${CONSUL_SNAPSHOT_SYSTEMD_CONFIG_PATH}"
+
+    log_info "Creating systemd snapshot timer config file ${CONSUL_SNAPSHOT_TIMER_SYSTEMD_CONFIG_PATH}"
+
+  local -r snapshot_timer_config=$(
+    cat <<EOF
+[Unit]
+Description=consul-snapshot timer
+Wants=consul-online.target
+
+[Timer]
+OnCalendar=${snapshot_on}
+RandomizedDelaySec=60m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+
+EOF
+  )
+
+    echo -e "$snapshot_timer_config" >"${CONSUL_SNAPSHOT_TIMER_SYSTEMD_CONFIG_PATH}"
   fi
 }
 
@@ -731,7 +768,8 @@ function start_consul() {
 
   sudo systemctl daemon-reload
   sudo systemctl enable consul-online.target
-  sudo systemctl --no-block restart ferm consul-online.target
+  sudo systemctl enable consul-snapshot.timer
+  sudo systemctl --no-block restart ferm consul-online.target consul-snapshot.timer
 }
 
 # Based on: http://unix.stackexchange.com/a/7732/215969
@@ -788,12 +826,18 @@ function run() {
   local server_stabilization_time="$DEFAULT_AUTOPILOT_SERVER_STABILIZATION_TIME"
   local redundancy_zone_tag="$DEFAULT_AUTOPILOT_REDUNDANCY_ZONE_TAG"
   local disable_upgrade_migration="$DEFAULT_AUTOPILOT_DISABLE_UPGRADE_MIGRATION"
+  local snapshot_on="*-*-* 03:00:00"
 
   while [[ $# -gt 0 ]]; do
     local key="$1"
 
     case "$key" in
     --role)
+      assert_not_empty "$key" "$2"
+      role="$2"
+      shift
+      ;;
+    --snapshot_on)
       assert_not_empty "$key" "$2"
       role="$2"
       shift
@@ -996,6 +1040,7 @@ function run() {
     "$bin_dir" \
     "$user" \
     "$secrets_bucket_name" \
+    "$snapshot_on" \
     "${environment[@]}"
 
   generate_ferm_config \
