@@ -12,54 +12,53 @@ readonly DEFAULT_CONSUL_USER="consul"
 readonly DOWNLOAD_PACKAGE_PATH="/tmp/consul.zip"
 readonly SYSTEM_BIN_DIR="/usr/bin"
 
-function wrap {
- local strings="${1}"
+function wrap() {
+  local strings="${1}"
 
- local length
- local cols
- local width
+  local length
+  local cols
+  local width
+  local sep="|"
 
- length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
- cols="$(tput cols)"
+  length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
+  cols="$(tput cols)"
+  local cols_minus_four="$((cols - 4))"
 
- if [[ $(( (cols - 4) / length )) -ge 2 ]]
- then
-  if [[ $((cols - length - 4)) -ge 80 ]]
-  then
-    width=80
+  if [[ "$((cols_minus_four / length))" -ge 2 ]]; then
+    if [[ "$((cols - length - 4))" -ge 80 ]]; then
+      width="80"
+    else
+      width="$((cols - length - 4))"
+    fi
+
+    echo -e "${strings}" |
+      fold -s -w "${width}" |
+      sed -e "/--/! s|^| \||g" |
+      column -t -s '|' |
+      sed 's/^/  /'
   else
-    width=$((cols - length - 4))
-  fi
-
-   echo -e "${strings}" | \
-    fold -s -w "${width}" | \
-    sed -e "/--/! s|^| \||g" | \
-    column -t -s '|' | \
-    sed  's/^/  /'
- else
     local lines
     local line
-    readarray -t lines <<< "${strings}"
+    readarray -t lines <<<"${strings}"
     local option
     local description
 
-    if [[ "${cols}" -ge 80 ]]
-    then
+    if [[ "${cols}" -ge 80 ]]; then
       width="78"
     else
-      width=$((cols - 2))
+      width="$((cols - 2))"
     fi
 
     for line in "${lines[@]}"; do
-      option="${line%%|*}"
-      description=${line#*|}
+      option="${line%%$sep*}"
+      description="${line#*$sep}"
 
       echo "${option}"
       echo
-      echo "${description}" | fold -s -w "${width}" |  sed  's/^/  /'
+      echo "${description}" | fold -s -w "${width}" | sed 's/^/  /'
       echo
     done
- fi
+  fi
 }
 
 function print_usage {
@@ -90,7 +89,7 @@ function log {
   local -r level="$1"
   local -r message="$2"
   local -r timestamp=$(date +"%Y-%m-%d %H:%M:%S")
-  >&2 echo -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
+  echo >&2 -e "${timestamp} [${level}] [$SCRIPT_NAME] ${message}"
 }
 
 function log_info {
@@ -150,7 +149,7 @@ function retry {
     fi
     log_warn "$description failed. Will sleep for 10 seconds and try again."
     sleep 10
-  done;
+  done
 
   log_error "$description failed after 5 attempts."
   exit $exit_status
@@ -195,41 +194,41 @@ function fetch_binary {
   cpu_arch="$(uname -m)"
   local binary_arch=""
   case "$cpu_arch" in
-    x86_64)
-      binary_arch="amd64"
-      ;;
-    x86)
-      binary_arch="386"
-      ;;
-    arm64|aarch64)
-      binary_arch="arm64"
-      ;;
-    arm*)
-      # The following info is taken from https://www.consul.io/downloads
-      #
-      # Note for ARM users:
-      #
-      # Use Armelv5 for all 32-bit armel systems
-      # Use Armhfv6 for all armhf systems with v6+ architecture
-      # Use Arm64 for all v8 64-bit architectures
-      # The following commands can help determine the right version for your system:
-      #
-      # $ uname -m
-      # $ readelf -a /proc/self/exe | grep -q -c Tag_ABI_VFP_args && echo "armhf" || echo "armel"
-      #
-      local vfp_tag
-      vfp_tag="$(readelf -a /proc/self/exe | grep -q -c Tag_ABI_VFP_args)"
-      if [[ -z $vfp_tag  ]]; then
-        binary_arch="armelv5"
-      else
-        binary_arch="armhfv6"
-      fi
-      ;;
-    *)
-      log_error "CPU architecture $cpu_arch is not a supported by Consul."
-      exit 1
-      ;;
-    esac
+  x86_64)
+    binary_arch="amd64"
+    ;;
+  x86)
+    binary_arch="386"
+    ;;
+  arm64 | aarch64)
+    binary_arch="arm64"
+    ;;
+  arm*)
+    # The following info is taken from https://www.consul.io/downloads
+    #
+    # Note for ARM users:
+    #
+    # Use Armelv5 for all 32-bit armel systems
+    # Use Armhfv6 for all armhf systems with v6+ architecture
+    # Use Arm64 for all v8 64-bit architectures
+    # The following commands can help determine the right version for your system:
+    #
+    # $ uname -m
+    # $ readelf -a /proc/self/exe | grep -q -c Tag_ABI_VFP_args && echo "armhf" || echo "armel"
+    #
+    local vfp_tag
+    vfp_tag="$(readelf -a /proc/self/exe | grep -q -c Tag_ABI_VFP_args)"
+    if [[ -z $vfp_tag ]]; then
+      binary_arch="armelv5"
+    else
+      binary_arch="armhfv6"
+    fi
+    ;;
+  *)
+    log_error "CPU architecture $cpu_arch is not a supported by Consul."
+    exit 1
+    ;;
+  esac
 
   if [[ -z "$download_url" && -n "$version" ]]; then
     download_url="https://releases.hashicorp.com/consul/${version}/consul_${version}_linux_${binary_arch}.zip"
@@ -298,46 +297,46 @@ function install {
     local key="$1"
 
     case "$key" in
-      --version)
-        version="$2"
-        shift
-        ;;
-      --download-url)
-        download_url="$2"
-        shift
-        ;;
-      --path)
-        path="$2"
-        shift
-        ;;
-      --user)
-        user="$2"
-        shift
-        ;;
-      --ca-file-path)
-        assert_not_empty "$key" "$2"
-        ca_file_path="$2"
-        shift
-        ;;
-      --cert-file-path)
-        assert_not_empty "$key" "$2"
-        cert_file_path="$2"
-        shift
-        ;;
-      --key-file-path)
-        assert_not_empty "$key" "$2"
-        key_file_path="$2"
-        shift
-        ;;
-      --help)
-        print_usage
-        exit
-        ;;
-      *)
-        log_error "Unrecognized argument: $key"
-        print_usage
-        exit 1
-        ;;
+    --version)
+      version="$2"
+      shift
+      ;;
+    --download-url)
+      download_url="$2"
+      shift
+      ;;
+    --path)
+      path="$2"
+      shift
+      ;;
+    --user)
+      user="$2"
+      shift
+      ;;
+    --ca-file-path)
+      assert_not_empty "$key" "$2"
+      ca_file_path="$2"
+      shift
+      ;;
+    --cert-file-path)
+      assert_not_empty "$key" "$2"
+      cert_file_path="$2"
+      shift
+      ;;
+    --key-file-path)
+      assert_not_empty "$key" "$2"
+      key_file_path="$2"
+      shift
+      ;;
+    --help)
+      print_usage
+      exit
+      ;;
+    *)
+      log_error "Unrecognized argument: $key"
+      print_usage
+      exit 1
+      ;;
     esac
 
     shift

@@ -20,38 +20,40 @@ function wrap() {
   local length
   local cols
   local width
+  local sep="|"
 
   length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
   cols="$(tput cols)"
+  local cols_minus_four="$((cols - 4))"
 
-  if [[ $(((cols - 4) / length)) -ge 2 ]]; then
-    if [[ $((cols - length - 4)) -ge 80 ]]; then
-      width=80
+  if [[ "$((cols_minus_four / length))" -ge 2 ]]; then
+    if [[ "$((cols - length - 4))" -ge 80 ]]; then
+      width="80"
     else
-      width=$((cols - length - 4))
+      width="$((cols - length - 4))"
     fi
 
-    echo -e "${strings}" \
-      | fold -s -w "${width}" \
-      | sed -e "/--/! s|^| \||g" \
-      | column -t -s '|' \
-      | sed 's/^/  /'
+    echo -e "${strings}" |
+      fold -s -w "${width}" |
+      sed -e "/--/! s|^| \||g" |
+      column -t -s '|' |
+      sed 's/^/  /'
   else
     local lines
     local line
-    readarray -t lines <<< "${strings}"
+    readarray -t lines <<<"${strings}"
     local option
     local description
 
     if [[ "${cols}" -ge 80 ]]; then
       width="78"
     else
-      width=$((cols - 2))
+      width="$((cols - 2))"
     fi
 
     for line in "${lines[@]}"; do
-      option="${line%%|*}"
-      description=${line#*|}
+      option="${line%%$sep*}"
+      description="${line#*$sep}"
 
       echo "${option}"
       echo
@@ -131,7 +133,7 @@ function get_object() {
   aws s3api get-object \
     --bucket "${secrets_bucket_name}" \
     --key "${key}" \
-    "${target}" > /dev/null || exit 1
+    "${target}" >/dev/null || exit 1
 
   chown "${user}:${user}" "${target}"
 }
@@ -189,43 +191,43 @@ function run() {
     local key="$1"
 
     case "$key" in
-      --role)
-        assert_not_empty "$key" "$2"
-        role="$2"
-        shift
-        ;;
-      # --enable-tls-encryption)
-      #   enable_tls_encryption="true"
-      #   ;;
-      --secrets-bucket-name)
-        assert_not_empty "$key" "$2"
-        secrets_bucket_name="$2"
-        shift
-        ;;
-      --passing-threshold)
-        assert_not_empty "$key" "$2"
-        passing_threshold="$2"
-        shift
-        ;;
-      --critical-threshold)
-        assert_not_empty "$key" "$2"
-        critical_threshold="$2"
-        shift
-        ;;
-      --log-level)
-        assert_not_empty "$key" "$2"
-        log_level="$2"
-        shift
-        ;;
-      --help)
-        print_usage
-        exit
-        ;;
-      *)
-        log_error "Unrecognized argument: $key"
-        print_usage
-        exit 1
-        ;;
+    --role)
+      assert_not_empty "$key" "$2"
+      role="$2"
+      shift
+      ;;
+    # --enable-tls-encryption)
+    #   enable_tls_encryption="true"
+    #   ;;
+    --secrets-bucket-name)
+      assert_not_empty "$key" "$2"
+      secrets_bucket_name="$2"
+      shift
+      ;;
+    --passing-threshold)
+      assert_not_empty "$key" "$2"
+      passing_threshold="$2"
+      shift
+      ;;
+    --critical-threshold)
+      assert_not_empty "$key" "$2"
+      critical_threshold="$2"
+      shift
+      ;;
+    --log-level)
+      assert_not_empty "$key" "$2"
+      log_level="$2"
+      shift
+      ;;
+    --help)
+      print_usage
+      exit
+      ;;
+    *)
+      log_error "Unrecognized argument: $key"
+      print_usage
+      exit 1
+      ;;
     esac
 
     shift
@@ -294,7 +296,7 @@ function run() {
   log_info "Writing ${environment_file_path}"
 
   local -r environment=$(
-    cat << EOF
+    cat <<EOF
 CONSUL_HTTP_ADDR="localhost:8501"
 CONSUL_CACERT="${consul_ca_file_path}"
 CONSUL_CLIENT_CERT="${consul_cert_file_path}"
@@ -306,7 +308,7 @@ CONSUL_HTTP_SSL_VERIFY="true"
 EOF
   )
 
-  echo -e "${environment}" > "${environment_file_path}"
+  echo -e "${environment}" >"${environment_file_path}"
   chown root:root "${environment_file_path}"
   chmod 640 "${environment_file_path}"
   setfacl -m "u:${NAME}:r" "${environment_file_path}"
@@ -318,7 +320,7 @@ EOF
   log_info "Writing $systemd_config_path"
 
   local -r unit_config=$(
-    cat << EOF
+    cat <<EOF
 [Unit]
 Description="HashiCorp Consul ESM"
 Documentation=https://github.com/hashicorp/consul-esm
@@ -332,7 +334,7 @@ EOF
   )
 
   local -r service_config=$(
-    cat << EOF
+    cat <<EOF
 [Service]
 User=${NAME}
 Group=${NAME}
@@ -346,15 +348,15 @@ EOF
   )
 
   local -r install_config=$(
-    cat << EOF
+    cat <<EOF
 [Install]
 WantedBy=multi-user.target
 EOF
   )
 
-  echo -e "$unit_config" > "$systemd_config_path"
-  echo -e "$service_config" >> "$systemd_config_path"
-  echo -e "$install_config" >> "$systemd_config_path"
+  echo -e "$unit_config" >"$systemd_config_path"
+  echo -e "$service_config" >>"$systemd_config_path"
+  echo -e "$install_config" >>"$systemd_config_path"
 
   chown root:root "${systemd_config_path}"
   chmod 644 "${systemd_config_path}"
@@ -366,7 +368,7 @@ EOF
   log_info "Writing ${default_config_path}"
 
   local -r default_config=$(
-    cat << EOF
+    cat <<EOF
 log_level      = "${log_level}"
 enable_syslog  = false
 instance_id    = "${EC2_INSTANCE_ID}"
@@ -393,7 +395,7 @@ critical_threshold = ${critical_threshold}
 EOF
   )
 
-  echo -e "${default_config}" > "${default_config_path}"
+  echo -e "${default_config}" >"${default_config_path}"
 
   chown ${NAME}:${NAME} "${default_config_path}"
   chmod 640 "${default_config_path}"

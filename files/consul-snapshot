@@ -68,7 +68,7 @@ function is_leader() {
 function snapshot() {
   CONSUL_HTTP_ADDR="${http_addr}" \
     CONSUL_HTTP_TOKEN="${token}" \
-    "${bin_dir}/consul" snapshot save "${snapshot_path}" &> /dev/null || return 1
+    "${bin_dir}/consul" snapshot save "${snapshot_path}" &>/dev/null || return 1
 
   chmod 600 "${snapshot_path}" || return 1
 
@@ -76,7 +76,7 @@ function snapshot() {
     --tagging "instance-id=${EC2_INSTANCE_ID}" \
     --bucket "${SECRETS_BUCKET_NAME}" \
     --key "${EC2_INSTANCE_REGION}/server/consul/snapshot/latest" \
-    --body "${snapshot_path}" &> /dev/null || return 1
+    --body "${snapshot_path}" &>/dev/null || return 1
 
   rm -f "${snapshot_path}" &>/dev/null || true
 
