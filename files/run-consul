@@ -839,7 +839,7 @@ function run() {
       role="$2"
       shift
       ;;
-    --snapshot_on)
+    --snapshot-on)
       assert_not_empty "$key" "$2"
       role="$2"
       shift
