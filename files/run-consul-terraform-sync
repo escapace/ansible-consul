@@ -20,38 +20,40 @@ function wrap() {
   local length
   local cols
   local width
+  local sep="|"
 
   length="$(echo -n "${strings}" | awk -F '|' '{print $1}' | awk '{ print length }' | sort -n | tail -1)"
   cols="$(tput cols)"
+  local cols_minus_four="$((cols - 4))"
 
-  if [[ $(((cols - 4) / length)) -ge 2 ]]; then
-    if [[ $((cols - length - 4)) -ge 80 ]]; then
-      width=80
+  if [[ "$((cols_minus_four / length))" -ge 2 ]]; then
+    if [[ "$((cols - length - 4))" -ge 80 ]]; then
+      width="80"
     else
-      width=$((cols - length - 4))
+      width="$((cols - length - 4))"
     fi
 
-    echo -e "${strings}" \
-      | fold -s -w "${width}" \
-      | sed -e "/--/! s|^| \||g" \
-      | column -t -s '|' \
-      | sed 's/^/  /'
+    echo -e "${strings}" |
+      fold -s -w "${width}" |
+      sed -e "/--/! s|^| \||g" |
+      column -t -s '|' |
+      sed 's/^/  /'
   else
     local lines
     local line
-    readarray -t lines <<< "${strings}"
+    readarray -t lines <<<"${strings}"
     local option
     local description
 
     if [[ "${cols}" -ge 80 ]]; then
       width="78"
     else
-      width=$((cols - 2))
+      width="$((cols - 2))"
     fi
 
     for line in "${lines[@]}"; do
-      option="${line%%|*}"
-      description=${line#*|}
+      option="${line%%$sep*}"
+      description="${line#*$sep}"
 
       echo "${option}"
       echo
@@ -130,7 +132,7 @@ function get_object() {
   aws s3api get-object \
     --bucket "${secrets_bucket_name}" \
     --key "${key}" \
-    "${target}" > /dev/null || exit 1
+    "${target}" >/dev/null || exit 1
 
   chown "${user}:${user}" "${target}"
 }
@@ -221,14 +223,14 @@ function module_alb_configuration() {
   log_info "Writing ${variables_path}"
 
   local -r variables=$(
-    cat << EOF
+    cat <<EOF
 region="${EC2_INSTANCE_REGION}"
 vpc_id="${EC2_INSTANCE_ETH0_VPC_ID}"
 listener_arn="${listener_arn}"
 EOF
   )
 
-  echo -e "${variables}" > "${variables_path}"
+  echo -e "${variables}" >"${variables_path}"
 
   chown ${NAME}:${NAME} "${variables_path}"
   chmod 640 "${variables_path}"
@@ -240,7 +242,7 @@ EOF
   log_info "Writing ${config_path}"
 
   local -r config=$(
-    cat << EOF
+    cat <<EOF
 task {
   name        = "alb"
   description = "Application Load Balancer"
@@ -256,7 +258,7 @@ task {
 EOF
   )
 
-  echo -e "${config}" > "${config_path}"
+  echo -e "${config}" >"${config_path}"
 
   chown ${NAME}:${NAME} "${config_path}"
   chmod 640 "${config_path}"
@@ -284,7 +286,7 @@ function write_ferm_configuration() {
   vpc_cidr="$(get_vpc_cidr "${ipv6}" "${interface}")"
 
   local -r template=$(
-    cat << EOF
+    cat <<EOF
 domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").vpc_cidr }} daddr {{ (ds "data").address }} {
   # the port for cts to use to serve api requests
   proto tcp dport 8558 ACCEPT;
@@ -294,7 +296,7 @@ EOF
   )
 
   echo "{ \"domain\": \"${domain}\", \"address\": \"${address}\", \"vpc_cidr\": \"${vpc_cidr}\" }" | jq '.' | gomplate \
-    -i "${template}" -d data=stdin:///data.json > "${template_path}"
+    -i "${template}" -d data=stdin:///data.json >"${template_path}"
 
   chown root:root "${template_path}"
   chmod 600 "${template_path}"
@@ -316,13 +318,13 @@ function module_dns_configuration() {
   log_info "Writing ${variables_path}"
 
   local -r variables=$(
-    cat << EOF
+    cat <<EOF
 region="${EC2_INSTANCE_REGION}"
 zone_id="${zone_id}"
 EOF
   )
 
-  echo -e "${variables}" > "${variables_path}"
+  echo -e "${variables}" >"${variables_path}"
 
   chown ${NAME}:${NAME} "${variables_path}"
   chmod 640 "${variables_path}"
@@ -334,7 +336,7 @@ EOF
   log_info "Writing ${config_path}"
 
   local -r config=$(
-    cat << EOF
+    cat <<EOF
 task {
   name        = "dns"
   description = "Route53"
@@ -350,7 +352,7 @@ task {
 EOF
   )
 
-  echo -e "${config}" > "${config_path}"
+  echo -e "${config}" >"${config_path}"
 
   chown ${NAME}:${NAME} "${config_path}"
   chmod 640 "${config_path}"
@@ -378,7 +380,7 @@ function write_ferm_configuration() {
   vpc_cidr="$(get_vpc_cidr "${ipv6}" "${interface}")"
 
   local -r template=$(
-    cat << EOF
+    cat <<EOF
 domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").vpc_cidr }} daddr {{ (ds "data").address }} {
   # the port for cts to use to serve api requests
   proto tcp dport 8558 ACCEPT;
@@ -388,7 +390,7 @@ EOF
   )
 
   echo "{ \"domain\": \"${domain}\", \"address\": \"${address}\", \"vpc_cidr\": \"${vpc_cidr}\" }" | jq '.' | gomplate \
-    -i "${template}" -d data=stdin:///data.json > "${template_path}"
+    -i "${template}" -d data=stdin:///data.json >"${template_path}"
 
   chown root:root "${template_path}"
   chmod 600 "${template_path}"
@@ -440,61 +442,61 @@ function run() {
     local key="$1"
 
     case "$key" in
-      --role)
-        assert_not_empty "$key" "$2"
-        role="$2"
-        shift
-        ;;
-      --secrets-bucket-name)
-        assert_not_empty "$key" "$2"
-        secrets_bucket_name="$2"
-        shift
-        ;;
-      --terraform-version)
-        assert_not_empty "$key" "$2"
-        terraform_version="$2"
-        shift
-        ;;
-      --log-level)
-        assert_not_empty "$key" "$2"
-        log_level="$2"
-        shift
-        ;;
-      --module-alb-enabled)
-        module_alb_enabled="true"
-        ;;
-      --module-alb-version)
-        assert_not_empty "$key" "$2"
-        module_alb_version="$2"
-        shift
-        ;;
-      --module-alb-listener-arn)
-        assert_not_empty "$key" "$2"
-        module_alb_listener_arn="$2"
-        shift
-        ;;
-      --module-dns-enabled)
-        module_dns_enabled="true"
-        ;;
-      --module-dns-version)
-        assert_not_empty "$key" "$2"
-        module_dns_version="$2"
-        shift
-        ;;
-      --module-dns-zone-id)
-        assert_not_empty "$key" "$2"
-        module_dns_zone_id="$2"
-        shift
-        ;;
-      --help)
-        print_usage
-        exit
-        ;;
-      *)
-        log_error "Unrecognized argument: $key"
-        print_usage
-        exit 1
-        ;;
+    --role)
+      assert_not_empty "$key" "$2"
+      role="$2"
+      shift
+      ;;
+    --secrets-bucket-name)
+      assert_not_empty "$key" "$2"
+      secrets_bucket_name="$2"
+      shift
+      ;;
+    --terraform-version)
+      assert_not_empty "$key" "$2"
+      terraform_version="$2"
+      shift
+      ;;
+    --log-level)
+      assert_not_empty "$key" "$2"
+      log_level="$2"
+      shift
+      ;;
+    --module-alb-enabled)
+      module_alb_enabled="true"
+      ;;
+    --module-alb-version)
+      assert_not_empty "$key" "$2"
+      module_alb_version="$2"
+      shift
+      ;;
+    --module-alb-listener-arn)
+      assert_not_empty "$key" "$2"
+      module_alb_listener_arn="$2"
+      shift
+      ;;
+    --module-dns-enabled)
+      module_dns_enabled="true"
+      ;;
+    --module-dns-version)
+      assert_not_empty "$key" "$2"
+      module_dns_version="$2"
+      shift
+      ;;
+    --module-dns-zone-id)
+      assert_not_empty "$key" "$2"
+      module_dns_zone_id="$2"
+      shift
+      ;;
+    --help)
+      print_usage
+      exit
+      ;;
+    *)
+      log_error "Unrecognized argument: $key"
+      print_usage
+      exit 1
+      ;;
     esac
 
     shift
@@ -515,8 +517,7 @@ function run() {
     assert_not_empty "--module-dns-zone-id" "$module_dns_enabled"
   fi
 
-  if [[ "${module_alb_enabled}" == "false" && "${module_dns_enabled}" == "false" ]]
-  then
+  if [[ "${module_alb_enabled}" == "false" && "${module_dns_enabled}" == "false" ]]; then
     log_error "Enable at least one module."
 
     exit 1
@@ -530,7 +531,7 @@ function run() {
     exit 1
   fi
 
-  if systemctl is-active "${NAME}.service" &> /dev/null; then
+  if systemctl is-active "${NAME}.service" &>/dev/null; then
     systemctl stop "${NAME}.service"
   fi
 
@@ -622,7 +623,7 @@ function run() {
   log_info "Writing ${environment_file_path}"
 
   local -r environment=$(
-    cat << EOF
+    cat <<EOF
 AWS_REGION="${EC2_INSTANCE_REGION}"
 AWS_ACCESS_KEY_ID="${aws_access_key_id}"
 AWS_SECRET_ACCESS_KEY="${aws_secret_access_key}"
@@ -637,7 +638,7 @@ CONSUL_HTTP_SSL_VERIFY="true"
 EOF
   )
 
-  echo -e "${environment}" > "${environment_file_path}"
+  echo -e "${environment}" >"${environment_file_path}"
   chown root:root "${environment_file_path}"
   chmod 640 "${environment_file_path}"
   setfacl -m "u:${NAME}:r" "${environment_file_path}"
@@ -649,7 +650,7 @@ EOF
   log_info "Writing $systemd_config_path"
 
   local -r unit_config=$(
-    cat << EOF
+    cat <<EOF
 [Unit]
 Description="HashiCorp Consul Terraform Sync"
 Documentation=https://www.consul.io/docs/nia
@@ -665,7 +666,7 @@ EOF
   )
 
   local -r service_config=$(
-    cat << EOF
+    cat <<EOF
 [Service]
 User=${NAME}
 Group=${NAME}
@@ -679,15 +680,15 @@ EOF
   )
 
   local -r install_config=$(
-    cat << EOF
+    cat <<EOF
 [Install]
 WantedBy=multi-user.target
 EOF
   )
 
-  echo -e "$unit_config" > "$systemd_config_path"
-  echo -e "$service_config" >> "$systemd_config_path"
-  echo -e "$install_config" >> "$systemd_config_path"
+  echo -e "$unit_config" >"$systemd_config_path"
+  echo -e "$service_config" >>"$systemd_config_path"
+  echo -e "$install_config" >>"$systemd_config_path"
 
   chown root:root "${systemd_config_path}"
   chmod 644 "${systemd_config_path}"
@@ -695,7 +696,7 @@ EOF
   log_info "Writing ${config_path}"
 
   local -r config=$(
-    cat << EOF
+    cat <<EOF
 log_level   = "${log_level}"
 working_dir = "/opt/${NAME}/tasks"
 port        = 8558
@@ -749,7 +750,7 @@ driver "terraform" {
 EOF
   )
 
-  echo -e "${config}" > "${config_path}"
+  echo -e "${config}" >"${config_path}"
 
   chown ${NAME}:${NAME} "${config_path}"
   chmod 640 "${config_path}"
