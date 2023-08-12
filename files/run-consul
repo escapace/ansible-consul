@@ -692,6 +692,8 @@ EOF
 
     echo -e "$snapshot_timer_config" >"${CONSUL_SNAPSHOT_TIMER_SYSTEMD_CONFIG_PATH}"
   fi
+
+  umask 027
 }
 
 function generate_ferm_config() {
