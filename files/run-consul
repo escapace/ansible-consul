@@ -768,12 +768,22 @@ EOF
 }
 
 function start_consul() {
+  local role="$1"
+
   log_info "Reloading systemd config and starting Consul"
 
   sudo systemctl daemon-reload
   sudo systemctl enable consul-online.target
-  sudo systemctl enable consul-snapshot.timer
-  sudo systemctl --no-block restart ferm consul-online.target consul-snapshot.timer
+
+  if [[ "$role" == "server" ]]; then
+    sudo systemctl enable consul-snapshot.timer
+  fi
+
+  sudo systemctl --no-block restart ferm consul-online.target
+
+  if [[ "$role" == "server" ]]; then
+    sudo systemctl --no-block restart consul-snapshot.timer
+  fi
 }
 
 # Based on: http://unix.stackexchange.com/a/7732/215969
@@ -1054,7 +1064,7 @@ function run() {
 
   trust-ca "$consul_ca_file_path"
 
-  start_consul
+  start_consul "$role"
 }
 
 run "$@"
