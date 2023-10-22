@@ -508,7 +508,7 @@ EOF
     connect_configuration=$(
       cat <<EOF
 "connect": {
-  "enabled": true
+  "enabled": false
 },
 EOF
     )
