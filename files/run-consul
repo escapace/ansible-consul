@@ -739,14 +739,6 @@ domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").
   # wan serf: the serf wan port (tcp and udp)
   proto (tcp udp) dport 8302 ACCEPT;
 }
-{{ else }}
-domain ({{ (ds "data").domain }}) table filter chain INPUT daddr {{ (ds "data").address }} {
-  # sidecar service registrations
-  proto tcp dport 21000:21255 ACCEPT;
-
-  # exposed check listeners
-  proto tcp dport 21500:21755 ACCEPT;
-}
 {{ end }}
 EOF
   )
