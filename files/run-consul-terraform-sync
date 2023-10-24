@@ -358,44 +358,6 @@ EOF
   chmod 640 "${config_path}"
 }
 
-function write_ferm_configuration() {
-  log_info "Writing ferm configuration"
-
-  local ipv6="$1"
-  local interface="$2"
-
-  local template_path="/etc/ferm/ferm.d/1010-consul-terraform-sync.conf"
-
-  local address
-  local domain
-  local vpc_cidr
-
-  if [[ "$ipv6" == "true" ]]; then
-    domain="ip6"
-  else
-    domain="ip"
-  fi
-
-  address="$(get_address "${ipv6}" "${interface}")"
-  vpc_cidr="$(get_vpc_cidr "${ipv6}" "${interface}")"
-
-  local -r template=$(
-    cat <<EOF
-domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").vpc_cidr }} daddr {{ (ds "data").address }} {
-  # the port for cts to use to serve api requests
-  proto tcp dport 8558 ACCEPT;
-}
-
-EOF
-  )
-
-  echo "{ \"domain\": \"${domain}\", \"address\": \"${address}\", \"vpc_cidr\": \"${vpc_cidr}\" }" | jq '.' | gomplate \
-    -i "${template}" -d data=stdin:///data.json >"${template_path}"
-
-  chown root:root "${template_path}"
-  chmod 600 "${template_path}"
-}
-
 function trust-ca() {
   local -r source="${1}"
   local name
@@ -431,11 +393,11 @@ function run() {
   local log_level="ERR"
 
   local module_alb_enabled="false"
-  local module_alb_version="1.4.2"
+  local module_alb_version="1.6.0"
   local module_alb_listener_arn=""
 
   local module_dns_enabled="false"
-  local module_dns_version="0.2.0"
+  local module_dns_version="0.4.0"
   local module_dns_zone_id=""
 
   while [[ $# -gt 0 ]]; do
@@ -771,9 +733,9 @@ EOF
       "${module_dns_zone_id}"
   fi
 
-  write_ferm_configuration \
-    "false" \
-    "eth0"
+  # write_ferm_configuration \
+  #   "false" \
+  #   "eth0"
 
   trust-ca "$cts_ca_file_path"
 
