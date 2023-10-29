@@ -65,14 +65,6 @@
     setype: bin_t
     seuser: system_u
 
-- name: consul kresd.conf.d files
-  ansible.builtin.template:
-    src: kresd-policy-consul.conf.j2
-    dest: /etc/knot-resolver/kresd.conf.d/810-policy-consul.conf
-    owner: root
-    group: knot-resolver
-    mode: 0640
-
 - name: create directory for systemd drop-ins
   ansible.builtin.file:
     path: /etc/systemd/system/consul.service.d
