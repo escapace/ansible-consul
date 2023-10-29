@@ -1,7 +1,0 @@
-consul = policy.todnames({
-  env.EC2_INSTANCE_ETH0_IPV4_VPC_REVERSE_POINTERS,
-  'consul.'
-})
-
-policy.add(policy.suffix(policy.FLAGS({'NO_CACHE', 'NO_EDNS', 'NO_0X20'}), consul))
-policy.add(policy.suffix(policy.STUB({'::1@8600'}), consul))

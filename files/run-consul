@@ -471,7 +471,8 @@ EOF
 "ports": {
   "https": 8501,
   "grpc": -1,
-  "grpc_tls": -1
+  "grpc_tls": -1,
+  "serf_wan": -1
 },
 EOF
     )
@@ -490,7 +491,8 @@ EOF
 "ports": {
   "https": 8501,
   "grpc": -1,
-  "grpc_tls": -1
+  "grpc_tls": -1,
+  "serf_wan": -1
 },
 EOF
     )
@@ -737,7 +739,7 @@ domain ({{ (ds "data").domain }}) table filter chain INPUT saddr {{ (ds "data").
   proto tcp dport 8501 ACCEPT;
 
   # wan serf: the serf wan port (tcp and udp)
-  proto (tcp udp) dport 8302 ACCEPT;
+  # proto (tcp udp) dport 8302 ACCEPT;
 }
 {{ end }}
 EOF
@@ -762,7 +764,7 @@ function start_consul() {
     sudo systemctl enable consul-snapshot.timer
   fi
 
-  sudo systemctl --no-block restart ferm consul-online.target
+  sudo systemctl --no-block restart ferm consul-online.target 'kresd@*'
 
   if [[ "$role" == "server" ]]; then
     sudo systemctl --no-block restart consul-snapshot.timer
@@ -789,6 +791,42 @@ function trust-ca() {
 
   update-ca-trust
 }
+
+generate_kresd_config() {
+  local -r ipv6="${1}"
+  local -r interface="${2}"
+  local -r kresd_directory_path="/etc/knot-resolver/kresd.conf.d"
+  local -r kresd_conf_path="${kresd_directory_path}/810-policy-consul.conf"
+
+  local variable_reference
+
+  if [[ -d "${kresd_directory_path}" ]]; then
+
+  type="$(address_type "${ipv6}")"
+
+  variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_VPC_REVERSE_POINTERS"
+
+  local -r kresd_conf=$(
+    cat <<EOF
+consul = policy.todnames(filter_strings({
+  coalesce(env.${variable_reference}),
+  'consul.'
+}))
+
+policy.add(policy.suffix(policy.FLAGS({'NO_CACHE', 'NO_EDNS', 'NO_0X20'}), consul))
+policy.add(policy.suffix(policy.STUB({'::1@8600'}), consul))
+
+EOF
+  )
+
+    echo "${kresd_conf}" >"${kresd_conf_path}"
+    chown root:knot-resolver "$kresd_conf_path"
+    chmod 640 "$kresd_conf_path"
+
+    log_info "${kresd_conf_path}: knot-resolver configuration."
+  fi
+}
+
 
 function run() {
   umask 027
@@ -1042,6 +1080,10 @@ function run() {
 
   generate_ferm_config \
     "$server" \
+    "$ipv6" \
+    "$interface"
+
+  generate_kresd_config \
     "$ipv6" \
     "$interface"
 
