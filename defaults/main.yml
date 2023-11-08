@@ -1,7 +1,7 @@
 ---
 
 # https://github.com/hashicorp/consul
-consul_version: 1.16.2
+consul_version: 1.17.0
 consul_server: false
 consul_volume: true
 consul_volume_size: 45%VG
@@ -10,11 +10,11 @@ consul_volume_fs_type: "xfs"
 consul_volume_mount: /opt/consul/data
 
 # https://github.com/hashicorp/consul-template
-consul_template_version: 0.34.0
+consul_template_version: 0.35.0
 consul_template: true
 
 # https://github.com/hashicorp/consul-terraform-sync
-consul_terraform_sync_version: 0.7.0
+consul_terraform_sync_version: 0.7.1
 consul_terraform_sync: false
 
 # https://github.com/hashicorp/consul-esm
