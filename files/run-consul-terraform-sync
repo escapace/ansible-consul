@@ -389,15 +389,15 @@ function run() {
   local role=""
   local enable_tls_encryption="true"
   local secrets_bucket_name=""
-  local terraform_version="1.2.9"
+  local terraform_version="1.6.2"
   local log_level="ERR"
 
   local module_alb_enabled="false"
-  local module_alb_version="1.6.0"
+  local module_alb_version=""
   local module_alb_listener_arn=""
 
   local module_dns_enabled="false"
-  local module_dns_version="0.4.0"
+  local module_dns_version=""
   local module_dns_zone_id=""
 
   while [[ $# -gt 0 ]]; do
@@ -473,10 +473,12 @@ function run() {
 
   if [[ "${module_alb_enabled}" == "true" ]]; then
     assert_not_empty "--module-alb-listener-arn" "$module_alb_listener_arn"
+    assert_not_empty "--module-alb-version" "$module_alb_version"
   fi
 
   if [[ "${module_dns_enabled}" == "true" ]]; then
     assert_not_empty "--module-dns-zone-id" "$module_dns_enabled"
+    assert_not_empty "--module-dns-version" "$module_dns_version"
   fi
 
   if [[ "${module_alb_enabled}" == "false" && "${module_dns_enabled}" == "false" ]]; then
