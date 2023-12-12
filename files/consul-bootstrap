@@ -128,12 +128,37 @@ function consul_token_update() {
   local accessor_id
   local consul_http_token="${CONSUL_INITIAL_MANAGEMENT_TOKEN}"
 
-  accessor_id="$(CONSUL_HTTP_TOKEN="${consul_http_token}" consul acl token list -format json | jq -r ".[] | select(.SecretID == \"${secret}\") | .AccessorID")"
+  accessor_id="$(CONSUL_HTTP_TOKEN="${consul_http_token}" "${CONSUL_BIN_DIR}/consul" acl token list -format json | jq -r ".[] | select(.SecretID == \"${secret}\") | .AccessorID")"
 
   if [[ -z "${accessor_id}" ]]; then
     CONSUL_HTTP_TOKEN="${consul_http_token}" "${CONSUL_BIN_DIR}/consul" acl token create \
       -description "${description}" \
       -secret "${secret}" \
+      "${policies_config[@]}" &>/dev/null
+  fi
+}
+
+function consul_role_update() {
+  local -r name="$1"
+  local -r description="$2"
+  shift 2
+  local -r policies=("$@")
+
+  local policies_config=()
+  for policy in "${policies[@]}"; do
+    policies_config+=("-policy-name")
+    policies_config+=("${policy}")
+  done
+
+  local id
+  local consul_http_token="${CONSUL_INITIAL_MANAGEMENT_TOKEN}"
+
+  id="$(CONSUL_HTTP_TOKEN="${consul_http_token}" consul acl role list -format json | jq -r ".[] | select(.Name == \"${name}\") | .ID")"
+
+  if [[ -z "${id}" ]]; then
+    CONSUL_HTTP_TOKEN="${consul_http_token}" "${CONSUL_BIN_DIR}/consul" acl role create \
+      -name "${name}" \
+      -description "${description}" \
       "${policies_config[@]}" &>/dev/null
   fi
 }
@@ -185,6 +210,7 @@ function main() {
 
     consul_policy_create "nomad-client" "Nomad Client Policy"
     consul_policy_create "nomad-server" "Nomad Server Policy"
+    consul_policy_create "nomad-tasks-default" "ACL policy for Nomad tasks in the default Nomad namespace"
 
     consul_policy_create "vault-service-registration" "Vault Service Registration Policy"
 
@@ -203,6 +229,8 @@ function main() {
 
     consul_token_update "Vault Service Registration Policy" "${vault_service_registration_token}" "vault-service-registration"
     consul_token_update "Vault Consul Secrets Engine" "${vault_consul_secrets_engine}" "global-management"
+
+    consul_role_update "nomad-tasks-default" "ACL role for Nomad tasks in the default Nomad namespace" "nomad-tasks-default"
   fi
 }
 
