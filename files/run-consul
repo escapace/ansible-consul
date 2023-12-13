@@ -515,11 +515,7 @@ EOF
     ui_config=$(
       cat <<EOF
 "ui_config": {
-  "enabled": true,
-  "metrics_provider": "prometheus",
-  "metrics_proxy": {
-    "base_url": "http://[::1]:9201"
-  }
+  "enabled": true
 },
 EOF
     )
