@@ -182,31 +182,35 @@ consul_token_anonymous_update() {
 }
 
 function main() {
+  local consul_esm_token
   local consul_operator_token
   local consul_telemetry_token
+  local consul_terraform_sync_token
+  local nomad_bootstrap_token
   local nomad_client_token
   local nomad_server_token
-  local consul_terraform_sync_token
+  local vault_consul_secrets_engine_token
   local vault_service_registration_token
 
   if consul_is_leader; then
+    consul_esm_token="$(get_token "consul-esm")"
     consul_operator_token="$(get_token "consul-operator")"
     consul_telemetry_token="$(get_token "consul-telemetry")"
+    consul_terraform_sync_token="$(get_token "consul-terraform-sync")"
+    nomad_bootstrap_token="$(get_token "nomad-bootstrap")"
     nomad_client_token="$(get_token "nomad-client")"
     nomad_server_token="$(get_token "nomad-server")"
-    consul_terraform_sync_token="$(get_token "consul-terraform-sync")"
-    consul_esm_token="$(get_token "consul-esm")"
+    vault_consul_secrets_engine_token="$(get_token "vault-consul-secrets-engine")"
     vault_service_registration_token="$(get_token "vault-service-registration")"
-    vault_consul_secrets_engine="$(get_token "vault-consul-secrets-engine")"
 
-    consul_policy_create "consul-operator" "Consul Operator Policy"
     consul_policy_create "consul-agent" "Consul Agent Policy"
     consul_policy_create "consul-dns" "Consul DNS Policy"
-    consul_policy_create "consul-ui" "Consul UI Policy"
+    consul_policy_create "consul-operator" "Consul Operator Policy"
     consul_policy_create "consul-telemetry" "Consul Telemetry Policy"
+    consul_policy_create "consul-ui" "Consul UI Policy"
 
-    consul_policy_create "consul-terraform-sync" "Consul Terraform Sync Policy"
     consul_policy_create "consul-esm" "Consul ESM Policy"
+    consul_policy_create "consul-terraform-sync" "Consul Terraform Sync Policy"
 
     consul_policy_create "nomad-client" "Nomad Client Policy"
     consul_policy_create "nomad-server" "Nomad Server Policy"
@@ -217,18 +221,20 @@ function main() {
     sleep 3
 
     consul_token_anonymous_update "consul-dns" "consul-ui"
+
     consul_token_update "Consul Agent Token" "${CONSUL_AGENT_TOKEN}" "consul-agent"
-    consul_token_update "Consul Telemetry Token" "${consul_telemetry_token}" "consul-telemetry"
     consul_token_update "Consul Operator Token" "${consul_operator_token}" "consul-operator"
+    consul_token_update "Consul Telemetry Token" "${consul_telemetry_token}" "consul-telemetry"
 
-    consul_token_update "Consul Terraform Sync Token" "${consul_terraform_sync_token}" "consul-terraform-sync"
     consul_token_update "Consul ESM Token" "${consul_esm_token}" "consul-esm"
+    consul_token_update "Consul Terraform Sync Token" "${consul_terraform_sync_token}" "consul-terraform-sync"
 
+    consul_token_update "Nomad Bootstrap Token" "${nomad_bootstrap_token}" "global-management"
     consul_token_update "Nomad Client Token" "${nomad_client_token}" "nomad-client"
     consul_token_update "Nomad Server Token" "${nomad_server_token}" "nomad-server"
 
+    consul_token_update "Vault Consul Secrets Engine" "${vault_consul_secrets_engine_token}" "global-management"
     consul_token_update "Vault Service Registration Policy" "${vault_service_registration_token}" "vault-service-registration"
-    consul_token_update "Vault Consul Secrets Engine" "${vault_consul_secrets_engine}" "global-management"
 
     consul_role_update "nomad-tasks-default" "ACL role for Nomad tasks in the default Nomad namespace" "nomad-tasks-default"
   fi

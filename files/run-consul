@@ -498,17 +498,17 @@ EOF
     )
   fi
 
-  local connect_configuration=""
-  if [[ "$server" == "true" ]]; then
-    log_info "Creating Consul Connect configuration"
-    connect_configuration=$(
-      cat <<EOF
+  # local connect_configuration=""
+  # if [[ "$server" == "true" ]]; then
+  log_info "Creating Consul Connect configuration"
+  connect_configuration=$(
+    cat <<EOF
 "connect": {
   "enabled": false
 },
 EOF
-    )
-  fi
+  )
+  # fi
 
   local ui_config=""
   if [[ "$server" == "true" && "$ui_config_enabled" == true ]]; then
@@ -798,12 +798,12 @@ generate_kresd_config() {
 
   if [[ -d "${kresd_directory_path}" ]]; then
 
-  type="$(address_type "${ipv6}")"
+    type="$(address_type "${ipv6}")"
 
-  variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_VPC_REVERSE_POINTERS"
+    variable_reference="EC2_INSTANCE_${interface^^}_${type^^}_VPC_REVERSE_POINTERS"
 
-  local -r kresd_conf=$(
-    cat <<EOF
+    local -r kresd_conf=$(
+      cat <<EOF
 consul = policy.todnames(filter_strings({
   coalesce(env.${variable_reference}),
   'consul.'
@@ -813,7 +813,7 @@ policy.add(policy.suffix(policy.FLAGS({'NO_CACHE', 'NO_EDNS', 'NO_0X20'}), consu
 policy.add(policy.suffix(policy.STUB({'::1@8600'}), consul))
 
 EOF
-  )
+    )
 
     echo "${kresd_conf}" >"${kresd_conf_path}"
     chown root:knot-resolver "$kresd_conf_path"
@@ -822,7 +822,6 @@ EOF
     log_info "${kresd_conf_path}: knot-resolver configuration."
   fi
 }
-
 
 function run() {
   umask 027
