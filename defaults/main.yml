@@ -1,5 +1,4 @@
 ---
-
 # https://github.com/hashicorp/consul
 consul_version: 1.17.0
 consul_server: false
