@@ -1,5 +1,4 @@
 ---
-
 - name: install dependencies
   ansible.builtin.dnf:
     name: "{{ packages }}"
@@ -29,7 +28,7 @@
   ansible.builtin.copy:
     src: install-consul
     dest: /tmp/install-consul
-    mode: 0750
+    mode: "0750"
   changed_when: false
 
 - name: run install-consul script
@@ -38,7 +37,7 @@
     chdir: /
   tags:
     - molecule-idempotence-notest
-  #   creates: /opt/consul/bin/consul
+#   creates: /opt/consul/bin/consul
 
 - name: delete temporary install-consul script
   ansible.builtin.file:
@@ -50,7 +49,7 @@
   ansible.builtin.copy:
     src: run-consul
     dest: /opt/consul/bin/run-consul
-    mode: 0750
+    mode: "0750"
     owner: consul
     group: consul
   tags:
@@ -61,7 +60,7 @@
     path: /opt/consul/bin/consul
     owner: consul
     group: consul
-    mode: 0755
+    mode: "0755"
     setype: bin_t
     seuser: system_u
 
@@ -71,7 +70,7 @@
     owner: root
     group: root
     state: directory
-    mode: 0755
+    mode: "0755"
 
 - name: create consul service
   ansible.builtin.template:
@@ -79,7 +78,7 @@
     dest: /usr/lib/systemd/system/consul.service
     owner: root
     group: root
-    mode: 0644
+    mode: "0644"
   notify:
     - consul daemon-reload
 
@@ -87,7 +86,7 @@
   ansible.builtin.copy:
     src: consul-online
     dest: /opt/consul/bin/consul-online
-    mode: 0750
+    mode: "0750"
     owner: consul
     group: consul
 
@@ -97,7 +96,7 @@
     dest: /usr/lib/systemd/system/consul-online.service
     owner: root
     group: root
-    mode: 0644
+    mode: "0644"
   notify:
     - consul daemon-reload
 
@@ -107,7 +106,7 @@
     dest: /usr/lib/systemd/system/consul-online.target
     owner: root
     group: root
-    mode: 0644
+    mode: "0644"
   notify:
     - consul daemon-reload
 

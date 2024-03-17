@@ -1,5 +1,4 @@
 ---
-
 - name: consul-terraform-sync group
   ansible.builtin.group:
     name: consul-terraform-sync
@@ -23,7 +22,7 @@
     group: consul-terraform-sync
     path: "{{ item }}"
     state: directory
-    mode: 0755
+    mode: "0755"
   with_items:
     - /opt/consul-terraform-sync
     - /opt/consul-terraform-sync/bin
@@ -36,7 +35,7 @@
     group: consul-terraform-sync
     path: "{{ item }}"
     state: directory
-    mode: 0750
+    mode: "0750"
   with_items:
     - /opt/consul-terraform-sync/config
     - /opt/consul-terraform-sync/variables
@@ -47,7 +46,7 @@
 
 - name: check consul-terraform-sync version
   ansible.builtin.slurp:
-    src: "/opt/consul-terraform-sync/version"
+    src: /opt/consul-terraform-sync/version
   register: consul_current_terraform_sync_version
   changed_when: false
   ignore_errors: true
@@ -62,42 +61,42 @@
     - name: download consul-terraform-sync
       ansible.builtin.get_url:
         url: "{{ consul_terraform_sync_archive_url }}"
-        dest: "/tmp/{{ consul_terraform_sync_archive }}"
-        checksum: "sha256:{{ consul_terraform_sync_archive_checksum_url }}"
-        mode: '0660'
+        dest: /tmp/{{ consul_terraform_sync_archive }}
+        checksum: sha256:{{ consul_terraform_sync_archive_checksum_url }}
+        mode: "0660"
       changed_when: false
 
     - name: extract consul-terraform-sync
       ansible.builtin.unarchive:
-        src: "/tmp/{{ consul_terraform_sync_archive }}"
-        dest: "/opt/consul-terraform-sync/bin"
+        src: /tmp/{{ consul_terraform_sync_archive }}
+        dest: /opt/consul-terraform-sync/bin
         remote_src: true
       changed_when: false
 
     - name: chcon consul-terraform-sync binary
       ansible.builtin.file:
-        path: "/opt/consul-terraform-sync/bin/consul-terraform-sync"
+        path: /opt/consul-terraform-sync/bin/consul-terraform-sync
         owner: consul-terraform-sync
         group: consul-terraform-sync
-        mode: 0755
+        mode: "0755"
         setype: bin_t
         seuser: system_u
 
     - name: write version
       ansible.builtin.copy:
         content: "{{ consul_terraform_sync_archive }}"
-        dest: "/opt/consul-terraform-sync/version"
+        dest: /opt/consul-terraform-sync/version
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
 
 - name: create a nomad symbolic link
   ansible.builtin.file:
-    src: "/opt/consul-terraform-sync/bin/consul-terraform-sync"
+    src: /opt/consul-terraform-sync/bin/consul-terraform-sync
     dest: /usr/bin/consul-terraform-sync
     owner: consul-terraform-sync
     group: consul-terraform-sync
-    mode: 0755
+    mode: "0755"
     state: link
   tags:
     - consul-terraform-sync
@@ -106,7 +105,7 @@
   ansible.builtin.copy:
     src: run-consul-terraform-sync
     dest: /opt/consul-terraform-sync/bin/run-consul-terraform-sync
-    mode: 0750
+    mode: "0750"
     owner: consul-terraform-sync
     group: consul-terraform-sync
   tags:

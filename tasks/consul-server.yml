@@ -1,10 +1,9 @@
 ---
-
 - name: copy consul-bootstrap script
   ansible.builtin.copy:
     src: consul-bootstrap
     dest: /opt/consul/bin/consul-bootstrap
-    mode: 0750
+    mode: "0750"
     owner: consul
     group: consul
   tags:
@@ -16,7 +15,7 @@
     dest: /usr/lib/systemd/system/consul-bootstrap.service
     owner: root
     group: root
-    mode: 0644
+    mode: "0644"
   notify:
     - consul daemon-reload
 
@@ -24,13 +23,13 @@
   ansible.builtin.file:
     path: /etc/systemd/system/consul-bootstrap.service.d
     state: directory
-    mode: 0755
+    mode: "0755"
 
 - name: copy consul-snapshot script
   ansible.builtin.copy:
     src: consul-snapshot
     dest: /opt/consul/bin/consul-snapshot
-    mode: 0750
+    mode: "0750"
     owner: consul
     group: consul
   tags:
@@ -42,7 +41,7 @@
     dest: /usr/lib/systemd/system/consul-snapshot.service
     owner: root
     group: root
-    mode: 0644
+    mode: "0644"
   notify:
     - consul daemon-reload
 
@@ -50,4 +49,4 @@
   ansible.builtin.file:
     path: /etc/systemd/system/consul-snapshot.service.d
     state: directory
-    mode: 0755
+    mode: "0755"

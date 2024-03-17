@@ -1,8 +1,7 @@
 ---
-
 - name: check consul-template version
   ansible.builtin.slurp:
-    src: "/opt/consul/consul-template-version"
+    src: /opt/consul/consul-template-version
   register: consul_current_template_version
   changed_when: false
   ignore_errors: true
@@ -17,42 +16,42 @@
     - name: download consul-template
       ansible.builtin.get_url:
         url: "{{ consul_template_archive_url }}"
-        dest: "/tmp/{{ consul_template_archive }}"
-        checksum: "sha256:{{ consul_template_archive_checksum_url }}"
-        mode: '0660'
+        dest: /tmp/{{ consul_template_archive }}
+        checksum: sha256:{{ consul_template_archive_checksum_url }}
+        mode: "0660"
       changed_when: false
 
     - name: extract consul-template
       ansible.builtin.unarchive:
-        src: "/tmp/{{ consul_template_archive }}"
-        dest: "/opt/consul/bin"
+        src: /tmp/{{ consul_template_archive }}
+        dest: /opt/consul/bin
         remote_src: true
       changed_when: false
 
     - name: chcon consul-template binary
       ansible.builtin.file:
-        path: "/opt/consul/bin/consul-template"
+        path: /opt/consul/bin/consul-template
         owner: consul
         group: consul
-        mode: 0755
+        mode: "0755"
         setype: bin_t
         seuser: system_u
 
     - name: write version
       ansible.builtin.copy:
         content: "{{ consul_template_archive }}"
-        dest: "/opt/consul/consul-template-version"
+        dest: /opt/consul/consul-template-version
         owner: root
         group: root
-        mode: '0644'
+        mode: "0644"
 
 - name: create a consul-template symbolic link
   ansible.builtin.file:
-    src: "/opt/consul/bin/consul-template"
+    src: /opt/consul/bin/consul-template
     dest: /usr/bin/consul-template
     owner: consul
     group: consul
-    mode: 0755
+    mode: "0755"
     state: link
   tags:
     - consul-template
