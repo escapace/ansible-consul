@@ -8,4 +8,4 @@
     consul_terraform_sync: true
     consul_esm: true
   roles:
-    - role: escapace.consul
+    - role: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"

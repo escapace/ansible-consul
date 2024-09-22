@@ -1,23 +1,23 @@
 ---
-- ansible.builtin.include_tasks: consul.yml
+- ansible.builtin.include_tasks: consul.yaml
   when: ansible_os_family == "RedHat"
   tags:
     - run-consul
     - consul-bootstrap
     - consul-snapshot
 
-- ansible.builtin.include_tasks: consul-terraform-sync.yml
+- ansible.builtin.include_tasks: consul-terraform-sync.yaml
   when: ansible_os_family == "RedHat" and consul_terraform_sync | bool
   tags:
     - consul-terraform-sync
     - run-consul-terraform-sync
 
-- ansible.builtin.include_tasks: consul-template.yml
+- ansible.builtin.include_tasks: consul-template.yaml
   when: ansible_os_family == "RedHat" and consul_template | bool
   tags:
     - consul-template
 
-- ansible.builtin.include_tasks: consul-esm.yml
+- ansible.builtin.include_tasks: consul-esm.yaml
   when: ansible_os_family == "RedHat" and consul_esm | bool
   tags:
     - consul-esm

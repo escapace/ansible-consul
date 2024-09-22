@@ -110,14 +110,14 @@
   notify:
     - consul daemon-reload
 
-- ansible.builtin.include_tasks: consul-server.yml
+- ansible.builtin.include_tasks: consul-server.yaml
   when: consul_server | bool is true
   tags:
     - consul-bootstrap
     - consul-snapshot
 
-- ansible.builtin.include_tasks: health-check.yml
+- ansible.builtin.include_tasks: health-check.yaml
   when: consul_health_check | bool is true
 
-- ansible.builtin.include_tasks: storage-setup.yml
+- ansible.builtin.include_tasks: storage-setup.yaml
   when: (storage_setup_physical_device is defined) and (storage_setup_physical_device | length > 0) and (consul_volume|bool)
