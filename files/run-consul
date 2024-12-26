@@ -760,7 +760,7 @@ function start_consul() {
     sudo systemctl enable consul-snapshot.timer
   fi
 
-  sudo systemctl --no-block restart ferm consul-online.target 'kresd@*'
+  sudo systemctl --no-block restart ferm consul-online.target knot-resolver
 
   if [[ "$role" == "server" ]]; then
     sudo systemctl --no-block restart consul-snapshot.timer
@@ -791,8 +791,8 @@ function trust-ca() {
 generate_kresd_config() {
   local -r ipv6="${1}"
   local -r interface="${2}"
-  local -r kresd_directory_path="/etc/knot-resolver/kresd.conf.d"
-  local -r kresd_conf_path="${kresd_directory_path}/810-policy-consul.conf"
+  local -r kresd_directory_path="/etc/knot-resolver/config.d"
+  local -r kresd_conf_path="${kresd_directory_path}/810-policy-consul.lua"
 
   local variable_reference
 
